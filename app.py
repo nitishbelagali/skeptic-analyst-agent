@@ -15,9 +15,10 @@ load_dotenv()
 # Problem 1: A "None" (Null) value in sales.
 # Problem 2: A massive outlier (50,000) when normal sales are ~100.
 data = {
-    "date": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
-    "sales": [100, 150, None, 200, 50000], 
-    "region": ["North", "North", "South", "South", "North"]
+    # Added a duplicate date at the end ('2024-01-01') to test our new tool
+    "date": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-01"],
+    "sales": [100, 150, None, 200, 50000, 100], 
+    "region": ["North", "North", "South", "South", "North", "North"]
 }
 # Convert dictionary to a fast Polars DataFrame
 df = pl.DataFrame(data)
@@ -45,13 +46,30 @@ def check_data_quality(column_name: str):
         return f"REPORT for '{column_name}': Found {null_count} missing values{stats_info}."
     except Exception as e:
         return f"Error checking column: {str(e)}"
+@tool
+def check_duplicates(input_str: str = ""):
+    """
+    Checks for duplicate rows in the entire dataset.
+    Input is ignored, just pass an empty string.
+    """
+    try:
+        # Count how many rows are exact duplicates of others
+        # is_duplicated() returns a boolean mask, sum() counts the Trues
+        duplicate_count = df.is_duplicated().sum()
+        
+        if duplicate_count > 0:
+            return f"CRITICAL WARNING: Found {duplicate_count} duplicate rows in the dataset."
+        else:
+            return "Check passed: No duplicate rows found."
+    except Exception as e:
+        return f"Error checking duplicates: {str(e)}"
 
 # --- PART 4: THE BRAIN (The Agent) ---
 # We use 'gpt-4o' because it is smart and fast.
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
 # We list the tools we want to give the Agent
-tools = [check_data_quality]
+tools = [check_data_quality, check_duplicates]
 
 # We load the "Personality" we wrote in instructions.txt
 with open("instructions.txt", "r") as f:
