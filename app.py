@@ -3,6 +3,7 @@ import glob
 import polars as pl
 import audit_tools
 import reporting_tools
+import cleaning_tools
 from dotenv import load_dotenv
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain_core.tools import tool
@@ -65,9 +66,16 @@ def email_report(email_address: str):
     # The AI sometimes sends the email with quotes, clean it up
     clean_email = email_address.strip(' "\'')
     return reporting_tools.send_email_report(clean_email)
+@tool
+def auto_clean_data(input_str: str = ""):
+    """Removes nulls and duplicates from the dataset and saves a clean version."""
+    try:
+        return cleaning_tools.clean_dataset(df)
+    except Exception as e:
+        return f"Error during cleaning: {e}"
 
 # Update the tools list
-tools = [run_deep_audit, generate_pdf, email_report]
+tools = [run_deep_audit, generate_pdf, email_report, auto_clean_data]
 
 # --- PART 4: THE BRAIN (The Agent) ---
 # We use 'gpt-4o' because it is smart and fast.
