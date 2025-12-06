@@ -11,81 +11,104 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
 
-# --- PART 1: SETUP ---
-# Load the secret key from .env file
 load_dotenv()
 
-# --- PART 2: THE DATA (The "Dirty" Dataset) ---
-# We are creating a fake dataset with problems on purpose.
-# Problem 1: A "None" (Null) value in sales.
-# --- PART 2: THE DATA (Dynamic "Vision") ---
+# --- LOAD DATA ---
 def load_data():
-    # 1. Look for any CSV file in the current folder
     csv_files = glob.glob("*.csv")
-    
     if not csv_files:
-        raise FileNotFoundError("No CSV files found in the directory! Please drop a file like 'sales_data.csv' here.")
-    
-    # 2. Pick the first one we find
+        raise FileNotFoundError("No CSV files found in the directory!")
     filename = csv_files[0]
     print(f"\n👀 SKEPTIC AGENT: Found file '{filename}'. Loading data...\n")
-    
-    # 3. Read it into Polars
-    # We use 'ignore_errors=True' so one bad line doesn't crash the whole agent
     return pl.read_csv(filename, ignore_errors=True)
 
-# Load the data immediately when the app starts
 try:
     df = load_data()
+    # LOAD DATA INTO SESSION IMMEDIATELY
+    cleaning_tools.session.load_frame(df) 
 except Exception as e:
     print(f"CRITICAL ERROR: {e}")
     exit()
 
-# --- PART 3: MASTER TOOL ---
+# --- TOOLS ---
 @tool
 def run_deep_audit(input_str: str = ""):
-    """
-    Runs a comprehensive engineering audit checking for:
-    Schema drift, Nulls, Duplicates, Outliers, Range violations, 
-    and Business Rule logic.
-    """
+    """Runs a comprehensive engineering audit checks."""
     try:
-        # We use the global 'df' we loaded earlier
-        return audit_tools.run_all_checks(df)
+        current_df = cleaning_tools.session.current_df
+        return audit_tools.run_all_checks(current_df)
     except Exception as e:
         return f"Error running deep audit: {e}"
 
 @tool
 def generate_pdf(input_str: str = ""):
-    """Generates a PDF file of the last audit report. Input is ignored."""
+    """Generates a PDF file of the last audit report."""
     return reporting_tools.generate_pdf_report()
 
 @tool
 def email_report(email_address: str):
     """Sends the audit report PDF to the given email address."""
-    # The AI sometimes sends the email with quotes, clean it up
     clean_email = email_address.strip(' "\'')
     return reporting_tools.send_email_report(clean_email)
+
 @tool
-def auto_clean_data(input_str: str = ""):
-    """Removes nulls and duplicates from the dataset and saves a clean version."""
+def check_cleaning_options(input_str: str = ""):
+    """Analyzes data and returns the cleaning menu."""
+    report, _ = cleaning_tools.session.analyze_options()
+    return report
+
+@tool
+def apply_cleaning_fix(input_str: str):
+    """
+    Applies a fix. Input format: "Option_ID, Strategy" (e.g., "1, median" or "0").
+    """
     try:
-        return cleaning_tools.clean_dataset(df)
+        # 1. PARSE INPUT (Manual split because Agent sends one string)
+        parts = input_str.replace(",", " ").split(maxsplit=1)
+        option_id = parts[0].strip()
+        strategy = parts[1].strip() if len(parts) > 1 else ""
+
+        # 2. FUZZY MATCHING (Claude's logic, adapted safely)
+        if strategy:
+            s_lower = strategy.lower()
+            if s_lower in ["median", "med"]: strategy = "replace with median"
+            elif s_lower in ["cap", "threshold"]: strategy = "cap at threshold"
+            elif s_lower in ["remove", "delete", "drop"]: strategy = "remove rows"
+            elif s_lower in ["mean", "average", "avg"]: strategy = "mean"
+            elif s_lower in ["zero", "0"]: strategy = "zero"
+            elif s_lower in ["mode"]: strategy = "mode"
+        
+        # 3. APPLY FIX
+        result = cleaning_tools.session.apply_fix(option_id, strategy)
+        
+        # 4. AUTO-SAVE & SUMMARY
+        cleaning_tools.session.export_cleaned_data()
+        summary = cleaning_tools.session.get_summary()
+        return f"{result}\n\n(Current Data: {summary})"
+        
     except Exception as e:
-        return f"Error during cleaning: {e}"
+        return f"Error parsing input. Use format 'ID, Strategy'. Details: {e}"
 
-# Update the tools list
-tools = [run_deep_audit, generate_pdf, email_report, auto_clean_data]
+@tool
+def undo_last_fix(input_str: str = ""):
+    """Reverts the last cleaning action."""
+    result = cleaning_tools.session.undo()
+    cleaning_tools.session.export_cleaned_data()
+    return result
 
-# --- PART 4: THE BRAIN (The Agent) ---
-# We use 'gpt-4o' because it is smart and fast.
+@tool
+def export_cleaned_data(input_str: str = ""):
+    """Saves the current state of the data to a CSV file."""
+    return cleaning_tools.session.export_cleaned_data()
+
+tools = [run_deep_audit, generate_pdf, email_report, check_cleaning_options, apply_cleaning_fix, undo_last_fix, export_cleaned_data]
+
+# --- AGENT SETUP ---
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
-# We load the "Personality" we wrote in instructions.txt
 with open("instructions.txt", "r") as f:
     system_instructions = f.read()
 
-# This Template defines HOW the agent thinks
 template = system_instructions + """
 
 TOOLS:
@@ -114,48 +137,23 @@ New User Input: {input}
 {agent_scratchpad}
 """
 
-# --- PART 5: CONNECTING IT ALL ---
 prompt = PromptTemplate.from_template(template)
-
-# Create the Agent (The Brain)
 agent = create_react_agent(llm, tools, prompt)
-
-# --- NEW: Add Memory ---
-# This stores the conversation history so the agent remembers what it just said
 memory = ConversationBufferMemory(memory_key="chat_history")
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, memory=memory, handle_parsing_errors=True)
 
-# Create the Executor (The Body) with memory enabled
-# handle_parsing_errors=True helps if the agent makes a small formatting mistake
-agent_executor = AgentExecutor(
-    agent=agent, 
-    tools=tools, 
-    verbose=True, 
-    memory=memory,
-    handle_parsing_errors=True
-)
-
-# --- PART 6: RUNNING IT ---
-# --- PART 6: INTERACTIVE LOOP ---
+# --- INTERACTIVE LOOP ---
 print("\n🤖 SKEPTIC AGENT ONLINE. Type 'exit' to quit.\n")
 
 while True:
-    # 1. Get input from the user
     user_input = input("User (You): ")
-    
-    # 2. Check if the user wants to quit
     if user_input.lower() in ["exit", "quit", "q"]:
-        print("Skeptic Agent: Closing audit. Goodbye.")
         break
     
-    # 3. Run the Agent
     print("\n--- AGENT THINKING ---")
     try:
         response = agent_executor.invoke({"input": user_input})
-        
-        # 4. Extract and print just the final answer (cleaner output)
-        # The 'output' key contains the Final Answer string
         print(f"\nSkeptic Agent: {response['output']}\n")
-        print("-" * 50) # Just a separator line
-        
+        print("-" * 50)
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Error: {e}")
