@@ -66,13 +66,20 @@ def check_validity(df: pl.DataFrame):
     return issues
 
 def run_all_checks(df: pl.DataFrame):
-    """Runs all suites and compiles a report."""
+    """Runs all suites, compiles a report, and SAVES it to a file."""
     report = []
     report.extend(check_structure(df))
     report.extend(check_integrity(df))
     report.extend(check_validity(df))
     
+    # Construct the final text
     if not report:
-        return "✅ AUDIT PASSED: Data looks clean across all 30+ checks."
+        final_output = "✅ AUDIT PASSED: Data looks clean across all checks."
     else:
-        return "❌ AUDIT FAILED:\n" + "\n".join([f"- {item}" for item in report])
+        final_output = "❌ AUDIT FAILED:\n" + "\n".join([f"- {item}" for item in report])
+        
+    # --- NEW: Save to a temporary file for the PDF generator ---
+    with open("temp_audit_log.txt", "w", encoding="utf-8") as f:
+        f.write(final_output)
+        
+    return final_output

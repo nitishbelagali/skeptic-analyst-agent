@@ -1,0 +1,5 @@
+❌ AUDIT FAILED:
+- NULLS: Column 'sales' has 1 missing values.
+- RANGE VIOLATION: Found 1 rows with negative sales.
+- OUTLIERS: Found 1 sales records above 10,000.
+- BUSINESS RULE: Found 3 rows with invalid region names.

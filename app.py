@@ -2,11 +2,13 @@ import os
 import glob
 import polars as pl
 import audit_tools
+import reporting_tools
 from dotenv import load_dotenv
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
+from langchain.memory import ConversationBufferMemory
 
 # --- PART 1: SETUP ---
 # Load the secret key from .env file
@@ -52,8 +54,20 @@ def run_deep_audit(input_str: str = ""):
     except Exception as e:
         return f"Error running deep audit: {e}"
 
-# Update your tools list
-tools = [run_deep_audit]
+@tool
+def generate_pdf(input_str: str = ""):
+    """Generates a PDF file of the last audit report. Input is ignored."""
+    return reporting_tools.generate_pdf_report()
+
+@tool
+def email_report(email_address: str):
+    """Sends the audit report PDF to the given email address."""
+    # The AI sometimes sends the email with quotes, clean it up
+    clean_email = email_address.strip(' "\'')
+    return reporting_tools.send_email_report(clean_email)
+
+# Update the tools list
+tools = [run_deep_audit, generate_pdf, email_report]
 
 # --- PART 4: THE BRAIN (The Agent) ---
 # We use 'gpt-4o' because it is smart and fast.
@@ -63,7 +77,7 @@ llm = ChatOpenAI(model="gpt-4o", temperature=0)
 with open("instructions.txt", "r") as f:
     system_instructions = f.read()
 
-# This Template defines HOW the agent thinks (ReAct: Thought -> Action -> Observation)
+# This Template defines HOW the agent thinks
 template = system_instructions + """
 
 TOOLS:
@@ -78,18 +92,19 @@ Action: the action to take, should be one of [{tool_names}]
 Action Input: the input to the action 
 Observation: the result of the action
 
-
 When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:
 
 Thought: Do I need to use a tool? No 
 Final Answer: [your response here]
 
-
 Begin!
+
+Previous Conversation:
+{chat_history}
 
 New User Input: {input}
 {agent_scratchpad}
-"""  # <--- CLOSE THE TRIPLE QUOTES HERE
+"""
 
 # --- PART 5: CONNECTING IT ALL ---
 prompt = PromptTemplate.from_template(template)
@@ -97,8 +112,19 @@ prompt = PromptTemplate.from_template(template)
 # Create the Agent (The Brain)
 agent = create_react_agent(llm, tools, prompt)
 
-# Create the Executor (The Body that runs the loop)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+# --- NEW: Add Memory ---
+# This stores the conversation history so the agent remembers what it just said
+memory = ConversationBufferMemory(memory_key="chat_history")
+
+# Create the Executor (The Body) with memory enabled
+# handle_parsing_errors=True helps if the agent makes a small formatting mistake
+agent_executor = AgentExecutor(
+    agent=agent, 
+    tools=tools, 
+    verbose=True, 
+    memory=memory,
+    handle_parsing_errors=True
+)
 
 # --- PART 6: RUNNING IT ---
 # --- PART 6: INTERACTIVE LOOP ---
