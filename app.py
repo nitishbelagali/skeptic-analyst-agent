@@ -13,19 +13,40 @@ from langchain.memory import ConversationBufferMemory
 
 load_dotenv()
 
-# --- LOAD DATA ---
+# --- VISION: LOAD DATA (Interactive) ---
 def load_data():
+    print("\n🔍 SCANNING FOR DATASETS...")
+    # Find all CSV files in the folder
     csv_files = glob.glob("*.csv")
+    
     if not csv_files:
         raise FileNotFoundError("No CSV files found in the directory!")
-    filename = csv_files[0]
-    print(f"\n👀 SKEPTIC AGENT: Found file '{filename}'. Loading data...\n")
-    return pl.read_csv(filename, ignore_errors=True)
+    
+    # Logic: List files and ask user to choose
+    print(f"Found {len(csv_files)} CSV files:")
+    for i, file in enumerate(csv_files, 1):
+        print(f"  {i}. {file}")
+    
+    # Loop until we get a valid number from the user
+    while True:
+        try:
+            selection = input(f"\nSelect a file to load (1-{len(csv_files)}): ")
+            idx = int(selection) - 1 # Convert 1-based input to 0-based index
+            
+            if 0 <= idx < len(csv_files):
+                filename = csv_files[idx]
+                print(f"\n👀 SKEPTIC AGENT: Loading '{filename}'...\n")
+                return pl.read_csv(filename, ignore_errors=True)
+            else:
+                print(f"❌ Invalid number. Please choose 1-{len(csv_files)}.")
+        except ValueError:
+            print("❌ Please enter a number.")
 
+# --- INITIALIZE SESSION ---
 try:
+    # This now triggers the interactive menu BEFORE the agent starts
     df = load_data()
-    # LOAD DATA INTO SESSION IMMEDIATELY
-    cleaning_tools.session.load_frame(df) 
+    cleaning_tools.session.load_frame(df)
 except Exception as e:
     print(f"CRITICAL ERROR: {e}")
     exit()
