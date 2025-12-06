@@ -1,4 +1,5 @@
 import os
+import glob
 import polars as pl
 from dotenv import load_dotenv
 from langchain.agents import create_react_agent, AgentExecutor
@@ -13,15 +14,28 @@ load_dotenv()
 # --- PART 2: THE DATA (The "Dirty" Dataset) ---
 # We are creating a fake dataset with problems on purpose.
 # Problem 1: A "None" (Null) value in sales.
-# Problem 2: A massive outlier (50,000) when normal sales are ~100.
-data = {
-    # Added a duplicate date at the end ('2024-01-01') to test our new tool
-    "date": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-01"],
-    "sales": [100, 150, None, 200, 50000, 100], 
-    "region": ["North", "North", "South", "South", "North", "North"]
-}
-# Convert dictionary to a fast Polars DataFrame
-df = pl.DataFrame(data)
+# --- PART 2: THE DATA (Dynamic "Vision") ---
+def load_data():
+    # 1. Look for any CSV file in the current folder
+    csv_files = glob.glob("*.csv")
+    
+    if not csv_files:
+        raise FileNotFoundError("No CSV files found in the directory! Please drop a file like 'sales_data.csv' here.")
+    
+    # 2. Pick the first one we find
+    filename = csv_files[0]
+    print(f"\n👀 SKEPTIC AGENT: Found file '{filename}'. Loading data...\n")
+    
+    # 3. Read it into Polars
+    # We use 'ignore_errors=True' so one bad line doesn't crash the whole agent
+    return pl.read_csv(filename, ignore_errors=True)
+
+# Load the data immediately when the app starts
+try:
+    df = load_data()
+except Exception as e:
+    print(f"CRITICAL ERROR: {e}")
+    exit()
 
 # --- PART 3: THE TOOL ---
 @tool
