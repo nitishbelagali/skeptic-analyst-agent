@@ -95,9 +95,27 @@ agent = create_react_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 # --- PART 6: RUNNING IT ---
-query = "I see our max sales is 50,000. That is amazing growth, right? Confirm this."
-print(f"User Query: {query}\n")
-print("--- AGENT THINKING PROCESS ---")
+# --- PART 6: INTERACTIVE LOOP ---
+print("\n🤖 SKEPTIC AGENT ONLINE. Type 'exit' to quit.\n")
 
-# This kicks off the loop
-agent_executor.invoke({"input": query})
+while True:
+    # 1. Get input from the user
+    user_input = input("User (You): ")
+    
+    # 2. Check if the user wants to quit
+    if user_input.lower() in ["exit", "quit", "q"]:
+        print("Skeptic Agent: Closing audit. Goodbye.")
+        break
+    
+    # 3. Run the Agent
+    print("\n--- AGENT THINKING ---")
+    try:
+        response = agent_executor.invoke({"input": user_input})
+        
+        # 4. Extract and print just the final answer (cleaner output)
+        # The 'output' key contains the Final Answer string
+        print(f"\nSkeptic Agent: {response['output']}\n")
+        print("-" * 50) # Just a separator line
+        
+    except Exception as e:
+        print(f"An error occurred: {e}")
