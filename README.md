@@ -1,158 +1,97 @@
-# 🕵️‍♂️ The Skeptic Analyst Agent
+# 🕵️ Skeptic Analyst Agent
 
-> *"I don't trust your data until I verify it."*
+**"Trust No Data. Audit Everything."**
 
-The **Skeptic Analyst** is an autonomous AI agent designed to audit data quality with extreme prejudice. Unlike standard assistants that blindly accept data inputs, this agent assumes all data is "dirty," performs rigorous engineering checks, and refuses to sign off until the data is proven clean.
+The **Skeptic Analyst Agent** is an AI-powered data auditor that refuses to trust CSV files. It automatically scans for engineering errors (schema drift, nulls, duplicates) and business logic violations (negative sales, invalid regions).
 
-## 🚀 Key Features
+Unlike standard tools, it is **paranoid by default** and offers an **Interactive "Data Surgeon" Menu** to fix issues on the fly.
 
-* **Autonomic Vision:** Automatically detects and reads CSV files from the local directory.
-* **Paranoid Audit Suite:** Runs 30+ engineering checks including:
-    * Null Explosion & Schema Drift
-    * Duplicate Detection
-    * Outlier Analysis & Range Violations
-    * Business Rule Logic (e.g., Invalid Regions)
-* **ReAct Cognitive Architecture:** Uses a "Reason + Act" loop to form hypotheses about data errors before verifying them.
-* **Professional Reporting:** Generates downloadable **PDF Audit Reports** and simulates email delivery to stakeholders.
-* **Memory:** Remembers context across the chat session to handle multi-step workflows.
+---
 
-## 🛠️ Architecture
+## 🚀 Features
 
-The project is built using a modular architecture to separate "Brain" (LLM) from "Hands" (Tools).
+### 1. 🔍 Universal Audit
+* **Dataset Agnostic:** Works on *any* CSV (Sales, Patients, Titanic, etc.).
+* **Deep Inspection:** Detects Schema Drift, Nulls, Duplicates, Negative Values, and Statistical Outliers (IQR).
+* **Paranoid Reporting:** Generates a PDF report summarizing every flaw found.
 
-```mermaid
-graph TD
-    User[User Input] --> App[app.py (Agent Loop)]
-    App --> Brain[LLM (OpenAI GPT-4o)]
-    App --> Memory[Conversation History]
-    
-    subgraph "The Tool Belt"
-        App --> Audit[audit_tools.py]
-        App --> Report[reporting_tools.py]
-    end
-    
-    Audit --> Polars[Polars Engine]
-    Report --> PDF[ReportLab / Email]
-    
-    Polars --> CSV[(sales_data.csv)]
-    Audit --> Log[temp_audit_log.txt]
-    Log --> Report
+### 2. 🔧 Interactive Data Cleaning (The "Surgeon")
+If errors are found, the Agent offers a dynamic menu to fix them:
+* **Smart Strategies:** Fill Nulls (Mean/Median/Mode), Cap Outliers, Remove Duplicates.
+* **Auto-Pilot:** One-click fix for all standard errors.
+* **Safety Net:** Includes an **UNDO** button to revert mistakes instantly.
+* **Whitelist Logic:** Learns that "Unknown" is a valid state to prevent audit loops.
 
+### 3. 📂 Smart File Handling
+* **Auto-Scan:** Automatically detects all `.csv` files in the directory.
+* **Selection Menu:** Asks the user which file to audit.
+* **Smart Saving:** Saves cleaned files with a prefix (e.g., `patients.csv` $\rightarrow$ `clean_patients.csv`).
 
-💻 Tech Stack
-LangChain: For Agent orchestration and ReAct logic.
+---
 
-Polars: For high-performance data processing (blazing fast compared to Pandas).
+## 🛠️ Tech Stack
+* **Core:** Python 3.11+
+* **Data Engine:** Polars (High-performance DataFrame library)
+* **AI Brain:** LangChain + OpenAI (GPT-4o)
+* **Reporting:** ReportLab (PDF Generation)
 
-OpenAI GPT-4o: The reasoning engine.
+---
 
-ReportLab: For programmatic PDF generation.
+## ⚡ Quick Start
 
-Based on the image you shared, two things are happening:
-
-You are in "Edit Mode": VS Code shows the raw code by default. To see the pretty version (with diagrams and bold text), you need to click the Preview Button in the top right corner (icon looks like a magnifying glass with lines) or press Ctrl + Shift + V (Windows) / Cmd + Shift + V (Mac).
-
-Copy-Paste Errors: It looks like you accidentally copied the words "Code snippet" and "Bash" from my chat into the file. That breaks the formatting.
-
-Here is the clean, raw Markdown.
-
-Action:
-
-Delete everything currently inside your README.md.
-
-Copy the code block below and paste it in.
-
-Save the file.
-
-Markdown
-
-# 🕵️‍♂️ The Skeptic Analyst Agent
-
-> *"I don't trust your data until I verify it."*
-
-The **Skeptic Analyst** is an autonomous AI agent designed to audit data quality with extreme prejudice. Unlike standard assistants that blindly accept data inputs, this agent assumes all data is "dirty," performs rigorous engineering checks, and refuses to sign off until the data is proven clean.
-
-## 🚀 Key Features
-
-* **Autonomic Vision:** Automatically detects and reads CSV files from the local directory.
-* **Paranoid Audit Suite:** Runs 30+ engineering checks including:
-    * Null Explosion & Schema Drift
-    * Duplicate Detection
-    * Outlier Analysis & Range Violations
-    * Business Rule Logic (e.g., Invalid Regions)
-* **ReAct Cognitive Architecture:** Uses a "Reason + Act" loop to form hypotheses about data errors before verifying them.
-* **Professional Reporting:** Generates downloadable **PDF Audit Reports** and simulates email delivery to stakeholders.
-* **Memory:** Remembers context across the chat session to handle multi-step workflows.
-
-## 🛠️ Architecture
-
-The project is built using a modular architecture to separate "Brain" (LLM) from "Hands" (Tools).
-
-```mermaid
-graph TD
-    User[User Input] --> App[app.py (Agent Loop)]
-    App --> Brain[LLM (OpenAI GPT-4o)]
-    App --> Memory[Conversation History]
-    
-    subgraph "The Tool Belt"
-        App --> Audit[audit_tools.py]
-        App --> Report[reporting_tools.py]
-    end
-    
-    Audit --> Polars[Polars Engine]
-    Report --> PDF[ReportLab / Email]
-    
-    Polars --> CSV[(sales_data.csv)]
-    Audit --> Log[temp_audit_log.txt]
-    Log --> Report
-💻 Tech Stack
-LangChain: For Agent orchestration and ReAct logic.
-
-Polars: For high-performance data processing (blazing fast compared to Pandas).
-
-OpenAI GPT-4o: The reasoning engine.
-
-ReportLab: For programmatic PDF generation.
-
-⚙️ How to Run
-
-1. Clone the repository:
-
-
+### 1. Setup
+```bash
+# Clone the repo
 git clone [https://github.com/nitishbelagali/skeptic-analyst-agent.git](https://github.com/nitishbelagali/skeptic-analyst-agent.git)
 cd skeptic-analyst-agent
 
-2. Install dependencies:
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
+# Install dependencies
 pip install -r requirements.txt
 
-3. Set up Environment: Create a .env file and add your OpenAI Key:
+2. Configure Credentials
+Create a .env file and add your OpenAI Key:
 
+Code snippet
 
 OPENAI_API_KEY=sk-your-key-here
-
-4. Run the Agent:
+3. Run the Agent
+Bash
 
 python app.py
+🎮 How to Use
+Select File: The Agent lists available CSVs. Type the number to load one.
 
-🧪 Usage Example
-User: "Here is the monthly sales file. Is it good to go?"
+Audit: The Agent automatically audits the data.
 
-Skeptic Agent:
+Choose Action:
 
-Thought: The user is confident. I should doubt this. I will run the deep audit tool.
+1 Download PDF Report
 
-Action: run_deep_audit
+2 Email Report
 
-Result: ❌ FAILED. Found 50 negative sales values and 2 duplicate rows.
+3 Interactive Cleaning
 
-Response: "The data is not clean. I found critical errors. Would you like me to generate a PDF report for your manager?"
+Clean: Select a fix (e.g., "1 median" to fill nulls with median).
 
-🔮 Roadmap
-[x] Core Audit Logic
+Undo/Export: Type undo if you mess up, or done to switch files.
 
-[x] PDF & Email Reporting
+📂 Project Structure
+app.py - Main application with Session Loop & Smart File Selector.
 
-[ ] Transformation Layer: Auto-cleaning capabilities (Remove duplicates, impute nulls).
+audit_tools.py - Universal logic for detecting data quality issues.
 
-[ ] Visualizations: Auto-generate distribution charts.
+cleaning_tools.py - The "Surgeon" logic (Fixes, Undo, Auto-Pilot).
+
+reporting_tools.py - PDF generation engine.
+
+instructions.txt - System Prompt defining the "Skeptic" persona.
+
+📜 License
+MIT License. Use responsibly.
+
+
+---

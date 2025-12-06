@@ -1,41 +1,74 @@
 import polars as pl
-
-# Define what valid data looks like
-EXPECTED_SCHEMA = {"date", "sales", "region"}
-# UPDATE: Added "Unknown" here so the Audit passes when you use that fix
-VALID_REGIONS = ["North", "South", "East", "West", "Unknown"] 
+import numpy as np
 
 def check_structure(df):
+    """
+    Checks basic structure. 
+    (Removed strict schema check so it works on ANY dataset).
+    """
     issues = []
-    if not EXPECTED_SCHEMA.issubset(set(df.columns)):
-        issues.append(f"SCHEMA DRIFT: Missing {EXPECTED_SCHEMA - set(df.columns)}")
+    if df.width == 0:
+        issues.append("CRITICAL: Dataset has no columns.")
+    if df.height == 0:
+        issues.append("CRITICAL: Dataset is empty (0 rows).")
     return issues
 
 def check_integrity(df):
+    """
+    Universal checks for Nulls and Duplicates.
+    """
     issues = []
+    
+    # 1. Check for Duplicates
+    dup_count = df.is_duplicated().sum()
+    if dup_count > 0:
+        issues.append(f"DUPLICATES: Found {dup_count} exact duplicate rows.")
+
+    # 2. Check for Nulls (Iterates ALL columns)
     for col in df.columns:
-        if df[col].null_count() > 0:
-            issues.append(f"NULLS: Column '{col}' has {df[col].null_count()} missing values.")
-        if df.is_duplicated().sum() > 0:
-            issues.append(f"DUPLICATES: Found {df.is_duplicated().sum()} exact duplicate rows.")
+        null_count = df[col].null_count()
+        if null_count > 0:
+            pct = (null_count / df.height) * 100
+            issues.append(f"NULLS: Column '{col}' has {null_count} missing values ({pct:.1f}%).")
+            
     return issues
 
 def check_validity(df):
+    """
+    Universal checks for Outliers and Negative numbers on ALL numeric columns.
+    """
     issues = []
-    # Check Sales
-    if "sales" in df.columns and df["sales"].dtype.is_numeric():
-        if df.filter(pl.col("sales") < 0).height > 0:
-            issues.append(f"RANGE VIOLATION: Found {df.filter(pl.col('sales') < 0).height} rows with negative sales.")
-        if df.filter(pl.col("sales") > 10000).height > 0:
-            issues.append(f"OUTLIERS: Found {df.filter(pl.col('sales') > 10000).height} sales records above 10,000.")
     
-    # Check Regions (Business Logic)
-    if "region" in df.columns:
-        # We verify against the updated VALID_REGIONS list
-        invalid_count = df.filter(~pl.col("region").is_in(VALID_REGIONS)).height
-        if invalid_count > 0:
-            issues.append(f"BUSINESS RULE: Found {invalid_count} rows with invalid region names.")
-            
+    # Identify numeric columns automatically
+    numeric_cols = [col for col in df.columns if df[col].dtype.is_numeric()]
+    
+    for col in numeric_cols:
+        # 1. Check for Negatives (Universal)
+        # We skip columns that might legitimately be negative (like 'temperature' or 'profit')
+        # But for an auditor, it's safer to flag them and let the user decide.
+        neg_count = df.filter(pl.col(col) < 0).height
+        if neg_count > 0:
+            issues.append(f"NEGATIVE VALUES: Column '{col}' has {neg_count} negative rows.")
+
+        # 2. Check for Outliers (Universal IQR Method)
+        # We only run this if there is enough data
+        if df.height > 10:
+            q1 = df[col].quantile(0.25)
+            q3 = df[col].quantile(0.75)
+            if q1 is not None and q3 is not None:
+                iqr = q3 - q1
+                # If IQR is 0 (all values same), skip outlier check
+                if iqr > 0:
+                    upper_bound = q3 + (1.5 * iqr)
+                    lower_bound = q1 - (1.5 * iqr)
+                    
+                    outlier_count = df.filter(
+                        (pl.col(col) > upper_bound) | (pl.col(col) < lower_bound)
+                    ).height
+                    
+                    if outlier_count > 0:
+                        issues.append(f"OUTLIERS: Column '{col}' has {outlier_count} potential outliers.")
+
     return issues
 
 def run_all_checks(df):
@@ -45,6 +78,6 @@ def run_all_checks(df):
     report.extend(check_validity(df))
 
     if not report:
-        return " ✅  AUDIT PASSED"
+        return " ✅  AUDIT PASSED (No obvious structural or statistical errors found)."
     else:
         return " ❌  AUDIT FAILED:\n" + "\n".join([f"- {i}" for i in report])

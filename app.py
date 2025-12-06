@@ -13,45 +13,35 @@ from langchain.memory import ConversationBufferMemory
 
 load_dotenv()
 
-# --- VISION: LOAD DATA (Interactive) ---
+# --- PART 1: LOAD DATA (Interactive & Smart) ---
 def load_data():
     print("\n🔍 SCANNING FOR DATASETS...")
-    # Find all CSV files in the folder
     csv_files = glob.glob("*.csv")
     
     if not csv_files:
         raise FileNotFoundError("No CSV files found in the directory!")
     
-    # Logic: List files and ask user to choose
     print(f"Found {len(csv_files)} CSV files:")
     for i, file in enumerate(csv_files, 1):
         print(f"  {i}. {file}")
-    
-    # Loop until we get a valid number from the user
+        
     while True:
         try:
-            selection = input(f"\nSelect a file to load (1-{len(csv_files)}): ")
-            idx = int(selection) - 1 # Convert 1-based input to 0-based index
+            selection = input(f"\nSelect a file to load (1-{len(csv_files)}) or 'q' to quit: ")
+            if selection.lower() in ['q', 'quit', 'exit']:
+                return None, None
             
+            idx = int(selection) - 1
             if 0 <= idx < len(csv_files):
                 filename = csv_files[idx]
                 print(f"\n👀 SKEPTIC AGENT: Loading '{filename}'...\n")
-                return pl.read_csv(filename, ignore_errors=True)
+                return pl.read_csv(filename, ignore_errors=True), filename
             else:
                 print(f"❌ Invalid number. Please choose 1-{len(csv_files)}.")
         except ValueError:
             print("❌ Please enter a number.")
 
-# --- INITIALIZE SESSION ---
-try:
-    # This now triggers the interactive menu BEFORE the agent starts
-    df = load_data()
-    cleaning_tools.session.load_frame(df)
-except Exception as e:
-    print(f"CRITICAL ERROR: {e}")
-    exit()
-
-# --- TOOLS ---
+# --- PART 2: TOOLS ---
 @tool
 def run_deep_audit(input_str: str = ""):
     """Runs a comprehensive engineering audit checks."""
@@ -84,12 +74,12 @@ def apply_cleaning_fix(input_str: str):
     Applies a fix. Input format: "Option_ID, Strategy" (e.g., "1, median" or "0").
     """
     try:
-        # 1. PARSE INPUT (Manual split because Agent sends one string)
+        # Robust Parsing
         parts = input_str.replace(",", " ").split(maxsplit=1)
         option_id = parts[0].strip()
         strategy = parts[1].strip() if len(parts) > 1 else ""
 
-        # 2. FUZZY MATCHING (Claude's logic, adapted safely)
+        # Fuzzy Matching Logic
         if strategy:
             s_lower = strategy.lower()
             if s_lower in ["median", "med"]: strategy = "replace with median"
@@ -99,13 +89,15 @@ def apply_cleaning_fix(input_str: str):
             elif s_lower in ["zero", "0"]: strategy = "zero"
             elif s_lower in ["mode"]: strategy = "mode"
         
-        # 3. APPLY FIX
         result = cleaning_tools.session.apply_fix(option_id, strategy)
         
-        # 4. AUTO-SAVE & SUMMARY
+        # Auto-Save & Summary
         cleaning_tools.session.export_cleaned_data()
-        summary = cleaning_tools.session.get_summary()
-        return f"{result}\n\n(Current Data: {summary})"
+        try:
+            summary = cleaning_tools.session.get_summary()
+            return f"{result}\n\n(Current Data: {summary})"
+        except Exception:
+            return result
         
     except Exception as e:
         return f"Error parsing input. Use format 'ID, Strategy'. Details: {e}"
@@ -124,7 +116,7 @@ def export_cleaned_data(input_str: str = ""):
 
 tools = [run_deep_audit, generate_pdf, email_report, check_cleaning_options, apply_cleaning_fix, undo_last_fix, export_cleaned_data]
 
-# --- AGENT SETUP ---
+# --- PART 3: AGENT SETUP ---
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
 with open("instructions.txt", "r") as f:
@@ -163,18 +155,57 @@ agent = create_react_agent(llm, tools, prompt)
 memory = ConversationBufferMemory(memory_key="chat_history")
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, memory=memory, handle_parsing_errors=True)
 
-# --- INTERACTIVE LOOP ---
-print("\n🤖 SKEPTIC AGENT ONLINE. Type 'exit' to quit.\n")
-
-while True:
-    user_input = input("User (You): ")
-    if user_input.lower() in ["exit", "quit", "q"]:
-        break
+# --- PART 4: MAIN SESSION LOOP ---
+def main():
+    print("\n🤖 SKEPTIC AGENT ONLINE.")
     
-    print("\n--- AGENT THINKING ---")
-    try:
-        response = agent_executor.invoke({"input": user_input})
-        print(f"\nSkeptic Agent: {response['output']}\n")
-        print("-" * 50)
-    except Exception as e:
-        print(f"Error: {e}")
+    # OUTER LOOP: Handles File Selection
+    while True:
+        try:
+            # 1. Select File
+            df, filename = load_data()
+            
+            # If user selected 'q' in load_data, it returns None
+            if df is None:
+                print("Goodbye!")
+                break
+                
+            # 2. Initialize Session
+            cleaning_tools.session.load_frame(df, source_filename=filename)
+            memory.clear() # Clear chat history for the new file
+            
+            print(f"-" * 50)
+            print(f"📝 Session Started for: {filename}")
+            print(f"💡 Type 'done' or 'switch' to load a different file.")
+            print(f"💡 Type 'exit' to close the program.")
+            print(f"-" * 50)
+
+            # INNER LOOP: Handles Chat/Audit for this specific file
+            while True:
+                user_input = input("User (You): ")
+                
+                # Check for "switch file" commands
+                if user_input.lower() in ["done", "switch", "new", "change"]:
+                    print(f"\n🔄 Closing session for {filename}. Restarting file selector...\n")
+                    break # Breaks Inner Loop -> Goes back to load_data()
+                
+                # Check for "quit program" commands
+                if user_input.lower() in ["exit", "quit", "q"]:
+                    print("Skeptic Agent: Closing down. Goodbye.")
+                    return # Exits the entire function/program
+                
+                # Run Agent
+                print("\n--- AGENT THINKING ---")
+                try:
+                    response = agent_executor.invoke({"input": user_input})
+                    print(f"\nSkeptic Agent: {response['output']}\n")
+                    print("-" * 50)
+                except Exception as e:
+                    print(f"Error: {e}")
+
+        except Exception as e:
+            print(f"CRITICAL ERROR in Main Loop: {e}")
+            break
+
+if __name__ == "__main__":
+    main()
