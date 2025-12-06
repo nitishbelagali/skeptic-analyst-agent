@@ -1,7 +1,7 @@
 date,sales,region
 2024-01-01,100,North
-2024-01-02,150,North
+2024-01-02,-500,Mars  <-- Negative Sales AND Invalid Region
 2024-01-03,,South
 2024-01-04,200,South
-2024-01-05,50000,North
-2024-01-01,100,North
+2024-01-05,50000,North <-- Outlier
+2024-01-01,100,North   <-- Duplicate

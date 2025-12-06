@@ -1,6 +1,7 @@
 import os
 import glob
 import polars as pl
+import audit_tools
 from dotenv import load_dotenv
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain_core.tools import tool
@@ -37,53 +38,26 @@ except Exception as e:
     print(f"CRITICAL ERROR: {e}")
     exit()
 
-# --- PART 3: THE TOOL ---
+# --- PART 3: MASTER TOOL ---
 @tool
-def check_data_quality(column_name: str):
-    """Checks a specific column for null values and basic stats."""
-    try:
-        # --- THE FIX IS HERE ---
-        # The AI might send "sales" or 'sales' or sales\n. We clean it.
-        column_name = column_name.strip(' "\'\n') 
-        
-        # Check for Nulls
-        null_count = df.select(pl.col(column_name).null_count()).item()
-        
-        # Check for Stats
-        stats_info = ""
-        # We assume the column exists now that we cleaned the name
-        if df[column_name].dtype in [pl.Int64, pl.Float64]:
-            mean_val = df.select(pl.col(column_name).mean()).item()
-            max_val = df.select(pl.col(column_name).max()).item()
-            stats_info = f", Mean: {mean_val}, Max: {max_val}"
-            
-        return f"REPORT for '{column_name}': Found {null_count} missing values{stats_info}."
-    except Exception as e:
-        return f"Error checking column: {str(e)}"
-@tool
-def check_duplicates(input_str: str = ""):
+def run_deep_audit(input_str: str = ""):
     """
-    Checks for duplicate rows in the entire dataset.
-    Input is ignored, just pass an empty string.
+    Runs a comprehensive engineering audit checking for:
+    Schema drift, Nulls, Duplicates, Outliers, Range violations, 
+    and Business Rule logic.
     """
     try:
-        # Count how many rows are exact duplicates of others
-        # is_duplicated() returns a boolean mask, sum() counts the Trues
-        duplicate_count = df.is_duplicated().sum()
-        
-        if duplicate_count > 0:
-            return f"CRITICAL WARNING: Found {duplicate_count} duplicate rows in the dataset."
-        else:
-            return "Check passed: No duplicate rows found."
+        # We use the global 'df' we loaded earlier
+        return audit_tools.run_all_checks(df)
     except Exception as e:
-        return f"Error checking duplicates: {str(e)}"
+        return f"Error running deep audit: {e}"
+
+# Update your tools list
+tools = [run_deep_audit]
 
 # --- PART 4: THE BRAIN (The Agent) ---
 # We use 'gpt-4o' because it is smart and fast.
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
-
-# We list the tools we want to give the Agent
-tools = [check_data_quality, check_duplicates]
 
 # We load the "Personality" we wrote in instructions.txt
 with open("instructions.txt", "r") as f:
