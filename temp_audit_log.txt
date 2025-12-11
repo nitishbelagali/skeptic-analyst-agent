@@ -1,3 +1,4 @@
-❌ AUDIT FAILED:
-- OUTLIERS: Found 1 sales records above 10,000.
-- BUSINESS RULE: Found 1 rows with invalid region names.
+ ❌  AUDIT FAILED:
+- OUTLIERS: Column 'popularity' has 1806 potential outliers.
+- NEGATIVE VALUES: Column 'loudness' has 85000 negative rows.
+- OUTLIERS: Column 'stream_count' has 14160 potential outliers.

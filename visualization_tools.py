@@ -8,197 +8,363 @@ from datetime import datetime
 class VisualizationSession:
     def __init__(self, db_path="warehouse.db"):
         self.db_path = db_path
-        # Modern color scheme
+        
+        # Professional color palette
         self.colors = {
-            'primary': '#2E86AB',
-            'secondary': '#A23B72',
-            'success': '#06A77D',
-            'warning': '#F18F01',
-            'background': '#F8F9FA'
+            'primary': '#334155',    # Slate 700 (Text/Headers)
+            'secondary': '#6366f1',  # Indigo 500 (Main Charts)
+            'accent': '#0ea5e9',     # Sky 500 (Secondary Charts)
+            'success': '#10b981',    # Emerald 500 (Positive/Growth)
+            'background': '#f8fafc', # Slate 50 (Paper Background)
+            'grid': '#e2e8f0'        # Slate 200 (Grid lines)
         }
 
-    def generate_dashboard(self):
-        """Generates interactive HTML dashboard"""
+    def generate_dashboard(self, context=""):
+        """
+        Generates interactive HTML dashboard.
+        
+        Args:
+            context: User's original question (e.g., "Which genre has most movies?")
+                     Used to customize chart selection.
+        """
         if not os.path.exists(self.db_path):
-            return "Error: Database not found."
+            return "❌ Error: Database not found. Run engineering pipeline first."
 
         conn = None
         try:
             conn = duckdb.connect(self.db_path, read_only=True)
-            tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
             
+            # Get database metadata
+            tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
             fact_table = "fact_table"
             dim_tables = [t for t in tables if t.startswith("dim_")]
             
             if fact_table not in tables:
-                return "Error: Fact table not found."
+                return "❌ Error: Fact table not found. Run transformation first."
             
             fact_cols_info = conn.execute(f"DESCRIBE {fact_table}").fetchall()
-            fact_col_names = [c[0] for c in fact_cols_info]
-            
-            # Create subplots
-            fig = make_subplots(
-                rows=3, cols=3,
-                subplot_titles=('KPI Overview', '', '', 
-                               'Activity Over Time', '', 'Top Categories',
-                               'Distribution', 'Correlation Matrix', 'Key Metrics'),
-                specs=[
-                    [{"type": "indicator", "colspan": 3}, None, None],
-                    [{"type": "scatter", "colspan": 2}, None, {"type": "bar"}],
-                    [{"type": "histogram"}, {"type": "heatmap"}, {"type": "table"}]
-                ],
-                vertical_spacing=0.12,
-                horizontal_spacing=0.1
-            )
-            
             row_count = conn.execute(f"SELECT COUNT(*) FROM {fact_table}").fetchone()[0]
             
-            # 1. KPI Indicators (Top row)
-            self._add_kpi_cards(fig, conn, fact_table, dim_tables, fact_cols_info, row_count)
+            # Determine dashboard mode based on context
+            mode = "General Overview"
+            if context:
+                context_lower = context.lower()
+                if any(word in context_lower for word in ["genre", "category", "type"]):
+                    mode = "Category Analysis"
+                elif any(word in context_lower for word in ["trend", "time", "over time", "timeline"]):
+                    mode = "Trend Analysis"
+                elif any(word in context_lower for word in ["country", "region", "location"]):
+                    mode = "Geographic Analysis"
             
-            # 2. Time Series (Middle-left, wide)
-            self._add_time_series(fig, conn, fact_table, dim_tables, fact_col_names, row=2, col=1)
-            
-            # 3. Category Breakdown (Middle-right)
-            self._add_categories(fig, conn, fact_table, dim_tables, fact_col_names, row=2, col=3)
-            
-            # 4. Distribution (Bottom-left)
-            self._add_distribution(fig, conn, fact_table, fact_cols_info, row=3, col=1)
-            
-            # 5. Correlation (Bottom-middle)
-            self._add_correlation(fig, conn, fact_table, fact_cols_info, row=3, col=2)
-            
-            # 6. Summary Table (Bottom-right)
-            self._add_summary_table(fig, conn, fact_table, dim_tables, row=3, col=3)
-            
-            # Layout Fixes
-            fig.update_layout(
-                title_text=f"<b>Interactive Data Analytics Dashboard</b><br><sub>Analysis of {row_count:,} records | Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}</sub>",
-                title_font_size=24,
-                showlegend=True,
-                # FIX: Move legend to top-left to avoid overlapping with colorbar
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-                height=1200,
-                paper_bgcolor=self.colors['background'],
-                plot_bgcolor='white',
-                font=dict(family="Arial, sans-serif", size=12)
+            # Create layout (2x2 grid)
+            fig = make_subplots(
+                rows=2, cols=2,
+                column_widths=[0.65, 0.35],
+                row_heights=[0.5, 0.5],
+                subplot_titles=(
+                    f'Primary Analysis: {mode}', 
+                    'Category Breakdown', 
+                    'Distribution Analysis', 
+                    'Key Metrics'
+                ),
+                specs=[
+                    [{"type": "xy"}, {"type": "xy"}],
+                    [{"type": "xy"}, {"type": "table"}]
+                ],
+                vertical_spacing=0.15,
+                horizontal_spacing=0.08
             )
             
+            # Add charts
+            self._add_primary_chart(fig, conn, fact_table, dim_tables, context, row=1, col=1)
+            self._add_category_chart(fig, conn, fact_table, dim_tables, row=1, col=2)
+            self._add_distribution_chart(fig, conn, fact_table, fact_cols_info, row=2, col=1)
+            self._add_summary_table(fig, conn, fact_table, dim_tables, row=2, col=2)
+            
+            # Global styling
+            fig.update_layout(
+                title=dict(
+                    text=f"<b>{mode} Dashboard</b><br><span style='font-size:14px; color:#64748b'>Analysis of {row_count:,} records | Generated: {datetime.now().strftime('%B %d, %Y')}</span>",
+                    font=dict(size=24, color=self.colors['primary']),
+                    x=0.02,
+                    y=0.95
+                ),
+                template="plotly_white",
+                height=950,
+                showlegend=False,
+                paper_bgcolor=self.colors['background'],
+                plot_bgcolor='white',
+                font=dict(family="Inter, Arial, sans-serif", color=self.colors['primary']),
+                margin=dict(t=100, l=50, r=50, b=50)
+            )
+            
+            # Save as HTML
             output_path = "dashboard_report.html"
             fig.write_html(output_path, config={'displayModeBar': False})
             
-            return f"Interactive dashboard generated: {output_path}"
+            conn.close()
+            return output_path
             
         except Exception as e:
-            return f"Dashboard failed: {e}"
-        finally:
-            if conn: conn.close()
+            if conn:
+                conn.close()
+            return f"❌ Dashboard generation failed: {e}"
 
-    def _add_kpi_cards(self, fig, conn, fact_table, dim_tables, fact_cols_info, row_count):
-        """Add KPI indicator cards"""
-        fig.add_trace(
-            go.Indicator(
-                mode="number",
-                value=row_count,
-                title={"text": f"<b>Total Records</b><br><span style='font-size:0.8em'>Across {len(dim_tables)} dimensions</span>"},
-                domain={'x': [0, 1], 'y': [0, 1]}
-            ),
-            row=1, col=1
-        )
-
-    def _add_time_series(self, fig, conn, fact_table, dim_tables, fact_cols, row, col):
-        """Add interactive time series"""
-        date_dim = next((d for d in dim_tables if "date" in d.lower() or "time" in d.lower()), None)
-        if not date_dim: return
+    def _add_primary_chart(self, fig, conn, fact_table, dim_tables, context, row, col):
+        """Context-aware primary chart (switches between line/bar based on question)."""
+        context_lower = context.lower() if context else ""
         
-        try:
+        # Strategy A: If user asks about specific category (e.g., "genre")
+        if "genre" in context_lower:
+            genre_dim = next((d for d in dim_tables if "genre" in d.lower()), None)
+            if genre_dim:
+                col_name = genre_dim.replace("dim_", "")
+                query = f"""
+                    SELECT d.{col_name} as x, COUNT(*) as y 
+                    FROM {fact_table} f
+                    JOIN {genre_dim} d ON f.{col_name}_id = d.{col_name}_id
+                    GROUP BY 1
+                    ORDER BY 2 DESC
+                    LIMIT 10
+                """
+                self._render_bar(fig, conn, query, "Top Genres", row, col, self.colors['secondary'])
+                return
+        
+        # Strategy B: If user asks about time trends
+        date_dim = next((d for d in dim_tables if "date" in d.lower() or "time" in d.lower()), None)
+        
+        if ("trend" in context_lower or "time" in context_lower) and date_dim:
             col_name = date_dim.replace("dim_", "")
-            fk_name = f"{col_name}_id"
-            query = f"SELECT d.{col_name} as dt, COUNT(*) as cnt FROM {fact_table} f JOIN {date_dim} d ON f.{fk_name} = d.{col_name}_id GROUP BY 1 ORDER BY 1"
+            query = f"""
+                SELECT d.{col_name} as x, COUNT(*) as y 
+                FROM {fact_table} f
+                JOIN {date_dim} d ON f.{col_name}_id = d.{col_name}_id
+                GROUP BY 1
+                ORDER BY 1
+            """
+            self._render_line(fig, conn, query, "Activity Over Time", row, col)
+            return
+        
+        # Strategy C: Default fallback (time series if available, else top category)
+        if date_dim:
+            col_name = date_dim.replace("dim_", "")
+            query = f"""
+                SELECT d.{col_name} as x, COUNT(*) as y 
+                FROM {fact_table} f
+                JOIN {date_dim} d ON f.{col_name}_id = d.{col_name}_id
+                GROUP BY 1
+                ORDER BY 1
+            """
+            self._render_line(fig, conn, query, "Activity Timeline", row, col)
+        elif dim_tables:
+            # Fallback to first dimension
+            dim = dim_tables[0]
+            col_name = dim.replace("dim_", "")
+            query = f"""
+                SELECT d.{col_name} as x, COUNT(*) as y 
+                FROM {fact_table} f
+                JOIN {dim} d ON f.{col_name}_id = d.{col_name}_id
+                GROUP BY 1
+                ORDER BY 2 DESC
+                LIMIT 10
+            """
+            self._render_bar(fig, conn, query, f"Top {col_name.title()}s", row, col, self.colors['secondary'])
+
+    def _render_bar(self, fig, conn, query, title, row, col, color):
+        """Renders horizontal bar chart."""
+        try:
             df = conn.execute(query).fetchdf()
-            df['dt'] = pd.to_datetime(df['dt'])
+            
+            if df.empty:
+                return
             
             fig.add_trace(
-                go.Scatter(x=df['dt'], y=df['cnt'], mode='lines+markers', name='Activity',
-                           line=dict(color=self.colors['primary'], width=3),
-                           marker=dict(size=8), fill='tozeroy'),
-                row=row, col=col
-            )
-            fig.update_xaxes(title_text="Date", row=row, col=col)
-            fig.update_yaxes(title_text="Count", row=row, col=col)
-        except: pass
-
-    def _add_categories(self, fig, conn, fact_table, dim_tables, fact_cols, row, col):
-        """Add interactive category chart"""
-        date_dim = next((d for d in dim_tables if "date" in d.lower() or "time" in d.lower()), None)
-        cat_dim = next((d for d in dim_tables if d != date_dim), None)
-        if not cat_dim: return
-        
-        try:
-            col_name = cat_dim.replace("dim_", "")
-            fk_name = f"{col_name}_id"
-            query = f"SELECT d.{col_name} as cat, COUNT(*) as cnt FROM {fact_table} f JOIN {cat_dim} d ON f.{fk_name} = d.{col_name}_id GROUP BY 1 ORDER BY 2 DESC LIMIT 10"
-            df = conn.execute(query).fetchdf()
-            
-            fig.add_trace(
-                go.Bar(y=df['cat'], x=df['cnt'], orientation='h', name=col_name.title(),
-                       marker=dict(color=df['cnt'], colorscale='Viridis', showscale=False)),
-                row=row, col=col
-            )
-            fig.update_xaxes(title_text="Count", row=row, col=col)
-            fig.update_yaxes(title_text=col_name.title(), row=row, col=col)
-        except: pass
-
-    def _add_distribution(self, fig, conn, fact_table, fact_cols_info, row, col):
-        """Add distribution histogram"""
-        numeric_col = next((c[0] for c in fact_cols_info if c[0] not in ['fact_id'] and not c[0].endswith('_id') and any(x in c[1].upper() for x in ['INT', 'FLOAT', 'DOUBLE'])), None)
-        if not numeric_col: return
-        
-        try:
-            df = conn.execute(f"SELECT {numeric_col} FROM {fact_table}").fetchdf()
-            fig.add_trace(
-                go.Histogram(x=df[numeric_col], name=numeric_col, marker=dict(color=self.colors['success'])),
-                row=row, col=col
-            )
-            fig.update_xaxes(title_text=numeric_col.title(), row=row, col=col)
-            fig.update_yaxes(title_text="Frequency", row=row, col=col)
-        except: pass
-
-    def _add_correlation(self, fig, conn, fact_table, fact_cols_info, row, col):
-        """Add correlation heatmap"""
-        numeric_cols = [c[0] for c in fact_cols_info if c[0] not in ['fact_id'] and not c[0].endswith('_id') and any(x in c[1].upper() for x in ['INT', 'FLOAT', 'DOUBLE'])]
-        if len(numeric_cols) < 2: return
-        
-        try:
-            df = conn.execute(f"SELECT {', '.join(numeric_cols)} FROM {fact_table}").fetchdf()
-            corr = df.corr()
-            fig.add_trace(
-                go.Heatmap(z=corr.values, x=corr.columns, y=corr.columns, colorscale='RdBu', zmid=0,
-                           # FIX: Make colorbar horizontal and thin to save space
-                           colorbar=dict(title="Corr", orientation='h', thickness=15, y=-0.3)),
-                row=row, col=col
-            )
-        except: pass
-
-    def _add_summary_table(self, fig, conn, fact_table, dim_tables, row, col):
-        """Add summary statistics table"""
-        try:
-            row_count = conn.execute(f"SELECT COUNT(*) FROM {fact_table}").fetchone()[0]
-            fact_cols = conn.execute(f"DESCRIBE {fact_table}").fetchall()
-            numeric_col = next((c[0] for c in fact_cols if c[0] not in ['fact_id'] and not c[0].endswith('_id') and any(x in c[1].upper() for x in ['INT', 'FLOAT', 'DOUBLE'])), None)
-            
-            stats_data = [['Total Records', f'{row_count:,}'], ['Dimensions', str(len(dim_tables))]]
-            if numeric_col:
-                stats = conn.execute(f"SELECT MIN({numeric_col}), MAX({numeric_col}), AVG({numeric_col}) FROM {fact_table}").fetchone()
-                stats_data.extend([[f'Min {numeric_col}', f'{stats[0]:,.2f}'], [f'Max {numeric_col}', f'{stats[1]:,.2f}'], [f'Avg {numeric_col}', f'{stats[2]:,.2f}']])
-            
-            fig.add_trace(
-                go.Table(
-                    header=dict(values=['<b>Metric</b>', '<b>Value</b>'], fill_color=self.colors['primary'], font=dict(color='white')),
-                    cells=dict(values=[[r[0] for r in stats_data], [r[1] for r in stats_data]], fill_color='white')
+                go.Bar(
+                    x=df['y'],
+                    y=df['x'],
+                    orientation='h',
+                    marker=dict(color=color, cornerradius=5),
+                    hovertemplate='<b>%{y}</b><br>Count: %{x}<extra></extra>',
+                    name=title
                 ),
                 row=row, col=col
             )
-        except: pass
+            
+            fig.update_xaxes(showgrid=True, gridcolor=self.colors['grid'], row=row, col=col)
+            fig.update_yaxes(showgrid=False, autorange="reversed", row=row, col=col)
+            
+        except Exception as e:
+            print(f"Bar chart error: {e}")
 
+    def _render_line(self, fig, conn, query, title, row, col):
+        """Renders line chart with area fill."""
+        try:
+            df = conn.execute(query).fetchdf()
+            
+            if df.empty:
+                return
+            
+            # Convert to datetime
+            df['x'] = pd.to_datetime(df['x'], errors='coerce')
+            df = df.dropna(subset=['x'])
+            
+            if df.empty:
+                return
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df['x'],
+                    y=df['y'],
+                    mode='lines+markers',
+                    line=dict(color=self.colors['secondary'], width=3),
+                    marker=dict(
+                        size=6,
+                        color='white',
+                        line=dict(width=2, color=self.colors['secondary'])
+                    ),
+                    fill='tozeroy',
+                    fillcolor='rgba(99, 102, 241, 0.1)',
+                    hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Count: %{y}<extra></extra>',
+                    name=title
+                ),
+                row=row, col=col
+            )
+            
+            fig.update_xaxes(showgrid=True, gridcolor=self.colors['grid'], row=row, col=col)
+            fig.update_yaxes(showgrid=True, gridcolor=self.colors['grid'], row=row, col=col)
+            
+        except Exception as e:
+            print(f"Line chart error: {e}")
+
+    def _add_category_chart(self, fig, conn, fact_table, dim_tables, row, col):
+        """Secondary category breakdown (finds non-date dimension)."""
+        # Find a dimension that isn't date/time or genre
+        target = next(
+            (d for d in dim_tables 
+             if "genre" not in d.lower() 
+             and "date" not in d.lower() 
+             and "time" not in d.lower()),
+            dim_tables[0] if dim_tables else None
+        )
+        
+        if not target:
+            return
+        
+        try:
+            col_name = target.replace("dim_", "")
+            query = f"""
+                SELECT d.{col_name} as x, COUNT(*) as y
+                FROM {fact_table} f
+                JOIN {target} d ON f.{col_name}_id = d.{col_name}_id
+                GROUP BY 1
+                ORDER BY 2 DESC
+                LIMIT 8
+            """
+            
+            df = conn.execute(query).fetchdf()
+            
+            if not df.empty:
+                fig.add_trace(
+                    go.Bar(
+                        x=df['y'],
+                        y=df['x'],
+                        orientation='h',
+                        marker=dict(color=self.colors['accent'], cornerradius=3),
+                        hovertemplate='<b>%{y}</b><br>Count: %{x}<extra></extra>'
+                    ),
+                    row=row, col=col
+                )
+                
+                fig.update_yaxes(autorange="reversed", row=row, col=col)
+                
+        except Exception as e:
+            print(f"Category chart error: {e}")
+
+    def _add_distribution_chart(self, fig, conn, fact_table, fact_cols_info, row, col):
+        """Distribution histogram of first numeric measure."""
+        # Find first numeric non-ID column
+        numeric_col = None
+        for col_info in fact_cols_info:
+            col_name = col_info[0]
+            col_type = col_info[1]
+            
+            if col_name not in ['fact_id'] and not col_name.endswith('_id'):
+                if any(x in col_type.upper() for x in ['INT', 'FLOAT', 'DOUBLE', 'DECIMAL']):
+                    numeric_col = col_name
+                    break
+        
+        if not numeric_col:
+            return
+        
+        try:
+            df = conn.execute(f"SELECT {numeric_col} FROM {fact_table} WHERE {numeric_col} IS NOT NULL").fetchdf()
+            
+            if df.empty:
+                return
+            
+            fig.add_trace(
+                go.Histogram(
+                    x=df[numeric_col],
+                    marker=dict(color=self.colors['success'], opacity=0.8),
+                    nbinsx=20,
+                    hovertemplate='<b>Range:</b> %{x}<br><b>Count:</b> %{y}<extra></extra>'
+                ),
+                row=row, col=col
+            )
+            
+            fig.update_xaxes(title_text=numeric_col.replace('_', ' ').title(), row=row, col=col)
+            fig.update_yaxes(title_text="Frequency", row=row, col=col)
+            fig.update_layout(bargap=0.1)
+            
+        except Exception as e:
+            print(f"Distribution chart error: {e}")
+
+    def _add_summary_table(self, fig, conn, fact_table, dim_tables, row, col):
+        """Summary statistics table."""
+        try:
+            # Get basic stats
+            row_count = conn.execute(f"SELECT COUNT(*) FROM {fact_table}").fetchone()[0]
+            
+            # Get date range if available
+            date_dim = next((d for d in dim_tables if "date" in d.lower()), None)
+            date_range = "N/A"
+            
+            if date_dim:
+                col_name = date_dim.replace("dim_", "")
+                try:
+                    dates = conn.execute(f"SELECT MIN({col_name}), MAX({col_name}) FROM {date_dim}").fetchone()
+                    date_range = f"{dates[0]} to {dates[1]}"
+                except:
+                    pass
+            
+            # Build table data
+            header_vals = ['<b>Metric</b>', '<b>Value</b>']
+            cell_vals = [
+                ['Total Records', 'Dimensions', 'Date Range'],
+                [f"{row_count:,}", str(len(dim_tables)), date_range]
+            ]
+            
+            fig.add_trace(
+                go.Table(
+                    header=dict(
+                        values=header_vals,
+                        fill_color=self.colors['primary'],
+                        font=dict(color='white', size=12),
+                        align='left'
+                    ),
+                    cells=dict(
+                        values=cell_vals,
+                        fill_color='white',
+                        font=dict(color=self.colors['primary'], size=12),
+                        align='left',
+                        height=30
+                    )
+                ),
+                row=row, col=col
+            )
+            
+        except Exception as e:
+            print(f"Summary table error: {e}")
+
+# Global session instance
 session = VisualizationSession()

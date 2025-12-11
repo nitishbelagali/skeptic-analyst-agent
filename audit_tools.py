@@ -1,11 +1,7 @@
 import polars as pl
-import numpy as np
 
 def check_structure(df):
-    """
-    Checks basic structure. 
-    (Removed strict schema check so it works on ANY dataset).
-    """
+    """Checks basic structure."""
     issues = []
     if df.width == 0:
         issues.append("CRITICAL: Dataset has no columns.")
@@ -14,9 +10,7 @@ def check_structure(df):
     return issues
 
 def check_integrity(df):
-    """
-    Universal checks for Nulls and Duplicates.
-    """
+    """Universal checks for Nulls and Duplicates."""
     issues = []
     
     # 1. Check for Duplicates
@@ -24,7 +18,7 @@ def check_integrity(df):
     if dup_count > 0:
         issues.append(f"DUPLICATES: Found {dup_count} exact duplicate rows.")
 
-    # 2. Check for Nulls (Iterates ALL columns)
+    # 2. Check for Nulls (All columns)
     for col in df.columns:
         null_count = df[col].null_count()
         if null_count > 0:
@@ -34,30 +28,27 @@ def check_integrity(df):
     return issues
 
 def check_validity(df):
-    """
-    Universal checks for Outliers and Negative numbers on ALL numeric columns.
-    """
+    """Universal checks for Outliers and Negatives on ALL numeric columns."""
     issues = []
     
     # Identify numeric columns automatically
     numeric_cols = [col for col in df.columns if df[col].dtype.is_numeric()]
     
     for col in numeric_cols:
-        # 1. Check for Negatives (Universal)
-        # We skip columns that might legitimately be negative (like 'temperature' or 'profit')
-        # But for an auditor, it's safer to flag them and let the user decide.
+        # 1. Check for Negatives
         neg_count = df.filter(pl.col(col) < 0).height
         if neg_count > 0:
             issues.append(f"NEGATIVE VALUES: Column '{col}' has {neg_count} negative rows.")
 
-        # 2. Check for Outliers (Universal IQR Method)
-        # We only run this if there is enough data
+        # 2. Check for Outliers (IQR Method)
         if df.height > 10:
             q1 = df[col].quantile(0.25)
             q3 = df[col].quantile(0.75)
+            
             if q1 is not None and q3 is not None:
                 iqr = q3 - q1
-                # If IQR is 0 (all values same), skip outlier check
+                
+                # Only check outliers if IQR > 0
                 if iqr > 0:
                     upper_bound = q3 + (1.5 * iqr)
                     lower_bound = q1 - (1.5 * iqr)
@@ -72,12 +63,22 @@ def check_validity(df):
     return issues
 
 def run_all_checks(df):
+    """Runs all audit checks and saves report to temp file."""
     report = []
     report.extend(check_structure(df))
     report.extend(check_integrity(df))
     report.extend(check_validity(df))
 
     if not report:
-        return " ✅  AUDIT PASSED (No obvious structural or statistical errors found)."
+        final_output = " ✅  AUDIT PASSED (No obvious structural or statistical errors found)."
     else:
-        return " ❌  AUDIT FAILED:\n" + "\n".join([f"- {i}" for i in report])
+        final_output = " ❌  AUDIT FAILED:\n" + "\n".join([f"- {i}" for i in report])
+    
+    # ✅ FIX: Save to temp file for PDF generation
+    try:
+        with open("temp_audit_log.txt", "w", encoding="utf-8") as f:
+            f.write(final_output)
+    except Exception as e:
+        print(f"Warning: Could not save audit log: {e}")
+    
+    return final_output

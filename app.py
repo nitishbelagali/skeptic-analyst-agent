@@ -60,7 +60,6 @@ def load_data():
                 print(f"\n👀 SKEPTIC AGENT: Loading '{filename}'...")
                 
                 try:
-                    # try_parse_dates=True is crucial for the Dashboard
                     df = pl.read_csv(filename, ignore_errors=True, try_parse_dates=True)
                     print(f"✅ Loaded {df.height} rows, {df.width} columns\n")
                     return df, filename
@@ -76,7 +75,7 @@ def load_data():
             print("\n\n👋 Interrupted by user.")
             return None, None
 
-# --- PART 2: CLEANING TOOLS ---
+# --- PART 2: TOOL DEFINITIONS ---
 @tool
 def run_deep_audit(input_str: str = ""):
     """Runs comprehensive data audit on current dataset."""
@@ -104,12 +103,8 @@ def check_cleaning_options(input_str: str = ""):
 
 @tool
 def apply_cleaning_fix(input_str: str):
-    """
-    Applies data cleaning fix.
-    Input: "option_id strategy" (e.g., "1 median" or "0" for auto-pilot)
-    """
+    """Applies data cleaning fix. Input: 'option_id strategy'"""
     try:
-        # Clean and parse input
         clean_input = input_str.replace('"', '').replace("'", "").strip()
         parts = clean_input.replace(",", " ").split(maxsplit=1)
         
@@ -119,20 +114,22 @@ def apply_cleaning_fix(input_str: str):
         # Fuzzy matching for common strategy names
         if strategy:
             s = strategy.lower()
-            if s in ["median", "med"]: strategy = "replace with median"
-            elif s in ["cap", "threshold"]: strategy = "cap at threshold"
-            elif s in ["remove", "drop", "delete"]: strategy = "remove rows"
-            elif s in ["mean", "avg", "average"]: strategy = "mean"
-            elif s in ["zero", "0"]: strategy = "zero"
-            elif s in ["mode"]: strategy = "mode"
+            if s in ["median", "med"]:
+                strategy = "replace with median"
+            elif s in ["cap", "threshold"]:
+                strategy = "cap at threshold"
+            elif s in ["remove", "drop", "delete"]:
+                strategy = "remove rows"
+            elif s in ["mean", "avg", "average"]:
+                strategy = "mean"
+            elif s in ["zero", "0"]:
+                strategy = "zero"
+            elif s in ["mode"]:
+                strategy = "mode"
         
-        # Apply fix
         result = cleaning_tools.session.apply_fix(option_id, strategy)
-        
-        # Auto-save
         cleaning_tools.session.export_cleaned_data()
         
-        # Try to get summary
         try:
             summary = cleaning_tools.session.get_summary()
             return f"{result}\n\n📊 Current Data: {summary}"
@@ -154,10 +151,9 @@ def export_cleaned_data(input_str: str = ""):
     """Exports current data state to CSV."""
     return cleaning_tools.session.export_cleaned_data()
 
-# --- PART 3: ENGINEERING TOOLS ---
 @tool
 def detect_data_schema(input_str: str = ""):
-    """Analyzes data structure and proposes dimensional model (star schema)."""
+    """Analyzes data structure and proposes dimensional model."""
     try:
         df = cleaning_tools.session.current_df
         if df is None or df.height == 0:
@@ -186,29 +182,34 @@ def load_to_warehouse(input_str: str = ""):
         return f"❌ Warehouse Loading Error: {e}"
 
 @tool
+def get_cleaning_history(input_str: str = ""):
+    """Returns the history of cleaning actions taken."""
+    if hasattr(cleaning_tools.session, 'cleaning_history'):
+        history = cleaning_tools.session.cleaning_history
+        if history:
+            return "\n".join(history)
+    return "No cleaning actions recorded yet."
+
+@tool
 def answer_with_sql(user_question: str):
-    """
-    Generates SQL query from natural language and executes it.
-    Example: "Which region has highest sales?"
-    """
+    """Generates SQL query from natural language and executes it."""
     try:
-        # Get schema information
         schema_info = engineering_tools.session.get_schema_info()
         
         if "Error" in schema_info or "doesn't exist" in schema_info:
             return "❌ Data warehouse not found. Run transformation pipeline first."
         
-        # Generate SQL using LLM
-        sql_prompt = f"""
-You are a SQL expert. Given this database schema:
+        sql_prompt = f"""You are a SQL expert. Given this DuckDB database schema:
+
 {schema_info}
 
-Write a DuckDB SQL query to answer: "{user_question}"
+Write a SQL query to answer: "{user_question}"
 
 Rules:
-- Return ONLY the raw SQL query, no markdown formatting.
-- Use proper JOINs between fact and dimension tables.
-- Use aggregations (COUNT, SUM, AVG) where appropriate.
+- Return ONLY the raw SQL query, no markdown formatting
+- Use proper JOINs between fact and dimension tables
+- Use aggregations (COUNT, SUM, AVG) where appropriate
+- Ensure all column references are valid
         """
         
         llm_sql = ChatOpenAI(model="gpt-4o", temperature=0)
@@ -217,7 +218,6 @@ Rules:
         
         print(f"\n[DEBUG] Generated SQL:\n{generated_sql}\n")
         
-        # Execute query
         result = engineering_tools.session.query_database(generated_sql)
         
         return f"Query executed successfully.\nSQL:\n{generated_sql}\n\nRESULT:\n{result}"
@@ -227,30 +227,35 @@ Rules:
 
 @tool
 def create_dashboard(input_str: str = ""):
-    """Generates executive dashboard with automated charts and insights."""
+    """Generates executive dashboard with automated charts."""
     try:
-        # Generate the HTML
-        result = visualization_tools.session.generate_dashboard()
+        result = visualization_tools.session.generate_dashboard(context=input_str)
         
-        # Auto-open if successful
-        if "dashboard_report.html" in result:
-            # We need to call the global open_file function
-            # Since open_file is defined in app.py, we can access it directly
+        if "dashboard_report.html" in str(result):
             open_file("dashboard_report.html")
             
-        return result
+        return f"✅ Dashboard generated: {result}"
     except Exception as e:
         return f"❌ Dashboard Error: {e}"
 
-# --- PART 4: TOOL REGISTRATION ---
+# --- PART 3: TOOL REGISTRATION ---
 tools = [
-    run_deep_audit, generate_pdf, email_report,
-    check_cleaning_options, apply_cleaning_fix, undo_last_fix, export_cleaned_data,
-    detect_data_schema, apply_schema_transformation, load_to_warehouse,
-    answer_with_sql, create_dashboard
+    run_deep_audit,
+    generate_pdf,
+    email_report,
+    check_cleaning_options,
+    apply_cleaning_fix,
+    undo_last_fix,
+    export_cleaned_data,
+    detect_data_schema,
+    apply_schema_transformation,
+    load_to_warehouse,
+    get_cleaning_history,
+    answer_with_sql,
+    create_dashboard
 ]
 
-# --- PART 5: AGENT CONFIGURATION ---
+# --- PART 4: AGENT CONFIGURATION ---
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
 with open("instructions.txt", "r", encoding="utf-8") as f:
@@ -293,10 +298,10 @@ agent_executor = AgentExecutor(
     verbose=True,
     memory=memory,
     handle_parsing_errors=True,
-    max_iterations=15  # Prevent infinite loops
+    max_iterations=15
 )
 
-# --- PART 6: MAIN APPLICATION LOOP ---
+# --- PART 5: MAIN APPLICATION LOOP ---
 def main():
     """Main entry point for the Skeptic Analyst Agent"""
     print("\n" + "="*60)
@@ -343,11 +348,11 @@ def main():
             print(f"\n{router_tools.router.get_workflow_description(intent)}")
             print("\n--- AGENT THINKING ---\n")
             
-            # Step 5: Add Context Prefix (UPDATED KEYS)
+            # Step 5: Add Context Prefix
             context_prefix = {
                 "audit_only": "MODE A (AUDITOR): ",
                 "clean_data": "MODE B (SURGEON): ",
-                "data_engineer": "MODE C (ENGINEER): "  # <--- MATCHES ROUTER_TOOLS
+                "data_engineer": "MODE C (ENGINEER): "
             }.get(intent, "")
             
             # Step 6: Execute Initial Task
@@ -358,18 +363,7 @@ def main():
             print(f"\nSkeptic Agent: {response['output']}\n")
             print("="*60)
             
-            # Step 7: Auto-Generate Dashboard for Engineering Mode
-            #if intent == "data_engineer":  # <--- MATCHES ROUTER_TOOLS
-             #   print("\n🎨 Generating Visual Dashboard...")
-              #  viz_result = visualization_tools.session.generate_dashboard()
-               # print(viz_result)
-                
-                # UPDATE: Look for HTML instead of PNG
-                #if "dashboard_report.html" in viz_result:
-                 #   print("📊 Opening interactive dashboard...")
-                  #  open_file("dashboard_report.html")
-            
-            # Step 8: Conversational Loop
+            # Step 7: Conversational Loop
             while True:
                 user_input = input("\nUser (You): ").strip()
                 
