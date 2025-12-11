@@ -20,6 +20,29 @@ class CleaningSession:
         """Saves current state before making changes (for undo)."""
         if self.current_df is not None:
             self.history_stack.append(self.current_df.clone())
+    
+    def preview_fix(self, option_id: str, strategy: str = ""):
+        """Returns a text summary of what would happen (Dry Run)."""
+        if self.current_df is None: return "❌ No data."
+        
+        df = self.current_df
+        msg = f"🔎 **PREVIEW (Safety Check):**\n"
+        
+        if option_id == "0": # Auto-pilot preview
+            n_dups = df.is_duplicated().sum()
+            n_nulls = sum(df[c].null_count() for c in df.columns)
+            msg += f"- Will remove **{n_dups}** duplicate rows\n"
+            msg += f"- Will fill/drop **{n_nulls}** missing values\n"
+            msg += f"- Will cap outliers using IQR method\n"
+            msg += "\n**Are you sure you want to proceed? (yes/no)**"
+            return msg
+            
+        # Simple manual preview
+        if "remove" in strategy or "drop" in strategy:
+             msg += f"- Will drop rows based on your criteria.\nConfirm? (yes/no)"
+             return msg
+             
+        return "⚠️ Preview unavailable for this specific custom fix. Proceed with caution."
 
     def undo(self):
         """Reverts to previous state."""

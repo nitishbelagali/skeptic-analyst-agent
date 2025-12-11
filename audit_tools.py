@@ -31,16 +31,24 @@ def check_validity(df):
     """Universal checks for Outliers and Negatives on ALL numeric columns."""
     issues = []
     
+    # Whitelist: Columns that can legitimately be negative
+    NEGATIVE_ALLOWED = ['loudness', 'db', 'decibel', 'temperature', 'profit', 'loss', 
+                        'change', 'delta', 'diff', 'latitude', 'longitude']
+    
     # Identify numeric columns automatically
     numeric_cols = [col for col in df.columns if df[col].dtype.is_numeric()]
     
     for col in numeric_cols:
-        # 1. Check for Negatives
-        neg_count = df.filter(pl.col(col) < 0).height
-        if neg_count > 0:
-            issues.append(f"NEGATIVE VALUES: Column '{col}' has {neg_count} negative rows.")
+        # 1. Check for Negatives (skip whitelisted columns)
+        col_lower = col.lower()
+        
+        # Skip if column name suggests negatives are valid
+        if not any(keyword in col_lower for keyword in NEGATIVE_ALLOWED):
+            neg_count = df.filter(pl.col(col) < 0).height
+            if neg_count > 0:
+                issues.append(f"NEGATIVE VALUES: Column '{col}' has {neg_count} negative rows.")
 
-        # 2. Check for Outliers (IQR Method)
+        # 2. Check for Outliers (Universal IQR Method)
         if df.height > 10:
             q1 = df[col].quantile(0.25)
             q3 = df[col].quantile(0.75)
@@ -59,6 +67,8 @@ def check_validity(df):
                     
                     if outlier_count > 0:
                         issues.append(f"OUTLIERS: Column '{col}' has {outlier_count} potential outliers.")
+
+    return issues
 
     return issues
 

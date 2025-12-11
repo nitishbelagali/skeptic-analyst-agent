@@ -16,20 +16,46 @@ from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
 import streamlit.components.v1 as components
 
-# Page Config
+# --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="Skeptic Analyst AI",
+    page_title="Skeptic Analyst Pro",
     layout="wide",
     page_icon="🤖",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# --- MODERN UI CSS (Glassmorphism) ---
 st.markdown("""
 <style>
-    .stChatFloatingInputContainer {bottom: 20px;}
-    .block-container {padding-top: 2rem;}
-    .stButton>button {width: 100%; border-radius: 5px;}
+    /* Main Background */
+    .stApp {
+        background: linear-gradient(to right, #0f172a, #1e293b);
+        color: #e2e8f0;
+    }
+    /* Cards/Containers */
+    .stChatFloatingInputContainer, .stChatMessage {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+    }
+    /* Headers */
+    h1, h2, h3 {
+        color: #38bdf8 !important;
+        font-family: 'Helvetica Neue', sans-serif;
+    }
+    /* Buttons */
+    .stButton>button {
+        background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        transition: transform 0.2s;
+    }
+    .stButton>button:hover {
+        transform: scale(1.02);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -188,6 +214,18 @@ def apply_schema_transformation(input_str: str = ""):
         
     except Exception as e:
         return f"❌ Transformation Error: {e}"
+    
+@tool
+def preview_cleaning_fix(input_str: str):
+    """Returns a DRY RUN preview of the fix to verify safety."""
+    try:
+        clean_input = input_str.replace('"', '').replace("'", "").strip()
+        parts = clean_input.split(maxsplit=1)
+        option_id = parts[0].strip()
+        strategy = parts[1].strip() if len(parts) > 1 else ""
+        return cleaning_tools.session.preview_fix(option_id, strategy)
+    except Exception as e:
+        return f"❌ Preview Error: {e}"
 
 @tool
 def load_to_warehouse(input_str: str = ""):
@@ -267,6 +305,7 @@ def create_dashboard(input_str: str = ""):
 tools = [
     run_deep_audit,
     check_cleaning_options,
+    preview_cleaning_fix,
     apply_cleaning_fix,
     detect_data_schema,
     generate_schema_diagram,
@@ -329,6 +368,10 @@ New User Input: {input}
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("📂 Data Upload")
+    st.divider()
+    eli5_mode = st.toggle("👶 Explain Like I'm 5", value=False)
+    if eli5_mode:
+        st.caption("Mode: Simple analogies enabled.")
     
     # 1. CSV Uploader
     uploaded_file = st.file_uploader("1. Upload Data (CSV)", type=["csv"])
