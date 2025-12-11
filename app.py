@@ -229,7 +229,16 @@ Rules:
 def create_dashboard(input_str: str = ""):
     """Generates executive dashboard with automated charts and insights."""
     try:
-        return visualization_tools.session.generate_dashboard()
+        # Generate the HTML
+        result = visualization_tools.session.generate_dashboard()
+        
+        # Auto-open if successful
+        if "dashboard_report.html" in result:
+            # We need to call the global open_file function
+            # Since open_file is defined in app.py, we can access it directly
+            open_file("dashboard_report.html")
+            
+        return result
     except Exception as e:
         return f"❌ Dashboard Error: {e}"
 
@@ -349,15 +358,16 @@ def main():
             print(f"\nSkeptic Agent: {response['output']}\n")
             print("="*60)
             
-            # Step 7: Auto-Generate Dashboard for Engineering Mode (UPDATED KEY)
-         #   if intent == "data_engineer":  # <--- MATCHES ROUTER_TOOLS
-          #      print("\n🎨 Generating Visual Dashboard...")
-           #     viz_result = visualization_tools.session.generate_dashboard()
-            #    print(viz_result)
+            # Step 7: Auto-Generate Dashboard for Engineering Mode
+            #if intent == "data_engineer":  # <--- MATCHES ROUTER_TOOLS
+             #   print("\n🎨 Generating Visual Dashboard...")
+              #  viz_result = visualization_tools.session.generate_dashboard()
+               # print(viz_result)
                 
-          #      if "dashboard_report.png" in viz_result:
-           #         print("📊 Opening dashboard...")
-            #        open_file("dashboard_report.png")
+                # UPDATE: Look for HTML instead of PNG
+                #if "dashboard_report.html" in viz_result:
+                 #   print("📊 Opening interactive dashboard...")
+                  #  open_file("dashboard_report.html")
             
             # Step 8: Conversational Loop
             while True:

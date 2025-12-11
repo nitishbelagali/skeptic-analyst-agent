@@ -1,4 +1,13 @@
-.venv/
-venv/
-__pycache__/
+# Ignore Data
+*.csv
+*.db
+*.dot
+*.pdf
+*.png
+*.html
+
+# Ignore System/Python
 .env
+.venv/
+__pycache__/
+.DS_Store

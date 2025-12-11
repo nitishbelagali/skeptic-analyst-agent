@@ -1,72 +1,63 @@
-import re
-from typing import Literal
-
-# Define the valid intents
-IntentType = Literal["audit_only", "clean_data", "data_engineer"]
-
-class IntentRouter:
-    """Classifies user intent and routes to appropriate workflow."""
-    
+class Router:
     def __init__(self):
-        self.intent_patterns = {
+        self.routes = {
             "audit_only": [
-                r"(just|only|quick).*(audit|check|validate|scan)",
-                r"show.*errors",
-                r"what.*wrong",
-                r"report.*issues",
-                r"quality.*check"
+                "audit", "check", "verify", "errors", "issues", "quality", 
+                "validate", "scan", "health", "debug"
             ],
             "clean_data": [
-                r"(clean|fix|repair|sanitize)",
-                r"remove.*(nulls|duplicates|errors)",
-                r"prepare.*data",
-                r"get.*ready",
-                r"data.*surgeon"
+                "clean", "fix", "repair", "scrub", "remove", "fill", 
+                "drop", "replace", "impute", "modify", "change", "sanitize"
             ],
             "data_engineer": [
-                # Broaden the catch for questions
-                r"(what is|how many|which).*(average|max|min|count|sum)",
-                r"(analyze|insight|trend|pattern|chart|plot|graph)",
-                r"(model|star schema|dimension|fact|warehouse)",
-                r"(transform|etl|pipeline)",
-                r"answer.*question",
-                r"build.*database"
+                # Core analysis keywords
+                "analyze", "analysis", "engineer", "pipeline", "warehouse", 
+                "transform", "schema", "model", "star", "dimension", "fact",
+                "dashboard", "visualize", "chart", "graph", "plot", "story",
+                "trend", "pattern", "correlation", "kpi", "sql", "query",
+                
+                # CONFIRMATION KEYWORDS (The Fix)
+                # These ensure 'yes' keeps us in Mode C
+                "yes", "yep", "yeah", "sure", "ok", "okay", "correct", 
+                "proceed", "go ahead", "continue", "right", "fine", "1", "2"
             ]
         }
-    
-    def classify_intent(self, user_message: str) -> IntentType:
+
+    def classify_intent(self, user_input: str):
         """
-        Analyzes user's message to determine workflow.
+        Determines the intent based on keyword matching.
+        Defaults to 'data_engineer' (Mode C) for ambiguous inputs like 'yes'.
         """
-        msg_lower = user_message.lower()
-        scores = {intent: 0 for intent in self.intent_patterns}
+        user_input = user_input.lower().strip()
         
-        for intent, patterns in self.intent_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, msg_lower):
+        # Check specific routes
+        scores = {k: 0 for k in self.routes}
+        
+        for intent, keywords in self.routes.items():
+            for word in keywords:
+                if word in user_input:
                     scores[intent] += 1
         
-        # Priority: Engineer > Clean > Audit
-        max_score = max(scores.values())
+        # If 'clean' and 'audit' tie, prefer 'clean'
+        if scores["clean_data"] > 0 and scores["clean_data"] == scores["audit_only"]:
+            return "clean_data"
+            
+        # Get best match
+        best_intent = max(scores, key=scores.get)
         
-        if max_score == 0:
-            # If the user asks a specific data question that didn't match keywords, 
-            # assume Engineer mode if it looks like a question (?)
-            if "?" in user_message:
-                return "data_engineer"
-            return "audit_only"
-        
-        if scores["data_engineer"] == max_score: return "data_engineer"
-        elif scores["clean_data"] == max_score: return "clean_data"
-        else: return "audit_only"
-    
-    def get_workflow_description(self, intent: IntentType) -> str:
-        if intent == "audit_only":
-            return "🔍 **AUDIT MODE**: Scanning for errors. No changes."
-        elif intent == "clean_data":
-            return "🔧 **SURGEON MODE**: Interactive cleaning."
-        elif intent == "data_engineer":
-            return "🏗️ **ENGINEER MODE**: Pipeline activated (Clean -> Model -> Query)."
-        return ""
+        # If no keywords matched (score 0), default to Engineer (Mode C)
+        # because Mode C handles general conversation/follow-ups best.
+        if scores[best_intent] == 0:
+            return "data_engineer"
+            
+        return best_intent
 
-router = IntentRouter()
+    def get_workflow_description(self, intent):
+        if intent == "audit_only":
+            return "🔍 **AUDIT MODE**: I will scan your data for errors (Read-Only)."
+        elif intent == "clean_data":
+            return "🔧 **SURGEON MODE**: I will fix issues interactively."
+        else:
+            return "🏗️ **ENGINEER MODE**: Pipeline activated (Clean -> Model -> Query)."
+
+router = Router()
