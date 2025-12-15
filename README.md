@@ -43,6 +43,7 @@ Most data agents are "yes-men." They will happily execute SQL on dirty data, hal
      python app.py
 
 📸 Screenshots
+<img width="1461" height="765" alt="image" src="https://github.com/user-attachments/assets/f4dec610-d335-4bf9-a237-6f0336f58ed4" />
 
 ### 📢 Action 3: The "Persona Takeover" Post
 Once the Streamlit link is live and the README looks good, post this to LinkedIn.
