@@ -45,4 +45,7 @@ Most data agents are "yes-men." They will happily execute SQL on dirty data, hal
 📸 Screenshots
 <img width="1461" height="765" alt="image" src="https://github.com/user-attachments/assets/f4dec610-d335-4bf9-a237-6f0336f58ed4" />
 
+<img width="1290" height="2796" alt="image" src="https://github.com/user-attachments/assets/7fc206b4-2994-4f7f-af8c-6b22d6cff768" />
+
+
 
