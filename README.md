@@ -1,97 +1,74 @@
-# 🕵️ Skeptic Analyst Agent
+# 🤖 The Skeptic Analyst (V2.0)
 
-**"Trust No Data. Audit Everything."**
+**An AI Data Engineering Agent that doesn't trust your data.**
 
-The **Skeptic Analyst Agent** is an AI-powered data auditor that refuses to trust CSV files. It automatically scans for engineering errors (schema drift, nulls, duplicates) and business logic violations (negative sales, invalid regions).
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](YOUR_STREAMLIT_APP_URL_HERE)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-Unlike standard tools, it is **paranoid by default** and offers an **Interactive "Data Surgeon" Menu** to fix issues on the fly.
+## ⚠️ The Problem with AI Agents
+Most data agents are "yes-men." They will happily execute SQL on dirty data, hallucinate trends from null values, and delete production tables if you ask nicely.
 
----
+## 🛡️ The Solution: "Paranoid Architecture"
+**The Skeptic Analyst** is built differently. It assumes input data is flawed until proven innocent.
 
-## 🚀 Features
-
-### 1. 🔍 Universal Audit
-* **Dataset Agnostic:** Works on *any* CSV (Sales, Patients, Titanic, etc.).
-* **Deep Inspection:** Detects Schema Drift, Nulls, Duplicates, Negative Values, and Statistical Outliers (IQR).
-* **Paranoid Reporting:** Generates a PDF report summarizing every flaw found.
-
-### 2. 🔧 Interactive Data Cleaning (The "Surgeon")
-If errors are found, the Agent offers a dynamic menu to fix them:
-* **Smart Strategies:** Fill Nulls (Mean/Median/Mode), Cap Outliers, Remove Duplicates.
-* **Auto-Pilot:** One-click fix for all standard errors.
-* **Safety Net:** Includes an **UNDO** button to revert mistakes instantly.
-* **Whitelist Logic:** Learns that "Unknown" is a valid state to prevent audit loops.
-
-### 3. 📂 Smart File Handling
-* **Auto-Scan:** Automatically detects all `.csv` files in the directory.
-* **Selection Menu:** Asks the user which file to audit.
-* **Smart Saving:** Saves cleaned files with a prefix (e.g., `patients.csv` $\rightarrow$ `clean_patients.csv`).
-
----
+### ✨ Key Features
+* **Dual-Interface:** * 🖥️ **Web UI (Streamlit):** Glassmorphism design with interactive Plotly dashboards.
+    * 💻 **CLI (Rich):** Terminal-based hacker mode for rapid auditing.
+* **Safety First:** Implements "Dry Run" logic. The agent **previews** deletions and asks for confirmation before modifying data.
+* **RAG Integration:** Ingests PDF Data Dictionaries to understand *business context* before writing SQL.
+* **ELI5 Mode:** Toggles between "Senior Engineer" technical jargon and "Explain Like I'm 5" analogies (Database = Toy Box).
 
 ## 🛠️ Tech Stack
-* **Core:** Python 3.11+
-* **Data Engine:** Polars (High-performance DataFrame library)
-* **AI Brain:** LangChain + OpenAI (GPT-4o)
-* **Reporting:** ReportLab (PDF Generation)
+* **Brain:** LangChain + OpenAI GPT-4o-mini
+* **Memory:** DuckDB (OLAP SQL) + Polars (High-performance Dataframes)
+* **Router:** Fuzzy Matching (`thefuzz`) for natural language intent detection
+* **UI:** Streamlit & Rich
 
----
+## 🚀 Quick Start
+1. Clone the repo:
+   ```bash
+   git clone [https://github.com/YOUR_USERNAME/skeptic_analyst.git](https://github.com/YOUR_USERNAME/skeptic_analyst.git)
 
-## ⚡ Quick Start
+2. Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    
+3. Run the Terminal Interface:
+    ```bash
+    streamlit run streamlit_app.py
+    
+4. Run the Terminal Interface:
+     ```bash
+     python app.py
 
-### 1. Setup
-```bash
-# Clone the repo
-git clone [https://github.com/nitishbelagali/skeptic-analyst-agent.git](https://github.com/nitishbelagali/skeptic-analyst-agent.git)
-cd skeptic-analyst-agent
+📸 Screenshots
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+### 📢 Action 3: The "Persona Takeover" Post
+Once the Streamlit link is live and the README looks good, post this to LinkedIn.
 
-# Install dependencies
-pip install -r requirements.txt
+**Copy/Paste this text:**
 
-2. Configure Credentials
-Create a .env file and add your OpenAI Key:
+**Headline:** ⚠️ **WARNING: Stop trusting your data.**
 
-Code snippet
+Most AI agents are "helpful." They will happily hallucinate insights from a dirty CSV just to make you happy.
 
-OPENAI_API_KEY=sk-your-key-here
-3. Run the Agent
-Bash
+I got tired of "yes-man" AI. So I built **The Skeptic Analyst**.
 
-python app.py
-🎮 How to Use
-Select File: The Agent lists available CSVs. Type the number to load one.
+It’s a paranoid Data Engineering agent. It doesn’t trust your inputs. It dry-runs deletions because it assumes you made a mistake. It audits nulls before it even thinks about plotting a chart.
 
-Audit: The Agent automatically audits the data.
+It’s built on LangChain, DuckDB, Polars, and pure suspicion.
 
-Choose Action:
+**New in V2.0:**
+🔹 **Dual-Interface:** Works in both the Terminal (CLI) and Web (Streamlit).
+🔹 **ELI5 Mode:** Explains complex schemas using "Lego" analogies.
+🔹 **Safety Previews:** A "Dry Run" layer that prevents accidental data loss.
 
-1 Download PDF Report
+If you want an AI that flatters you, use ChatGPT. If you want one that actually cleans your pipeline, try this.
 
-2 Email Report
+🔗 **Live Demo:** [Insert Your Streamlit Link Here]
+💻 **Code:** [Insert Your GitHub Link Here]
 
-3 Interactive Cleaning
-
-Clean: Select a fix (e.g., "1 median" to fill nulls with median).
-
-Undo/Export: Type undo if you mess up, or done to switch files.
-
-📂 Project Structure
-app.py - Main application with Session Loop & Smart File Selector.
-
-audit_tools.py - Universal logic for detecting data quality issues.
-
-cleaning_tools.py - The "Surgeon" logic (Fixes, Undo, Auto-Pilot).
-
-reporting_tools.py - PDF generation engine.
-
-instructions.txt - System Prompt defining the "Skeptic" persona.
-
-📜 License
-MIT License. Use responsibly.
-
+#DataEngineering #AI #LangChain #Python #Streamlit #OpenAI #TheSkeptic
 
 ---
