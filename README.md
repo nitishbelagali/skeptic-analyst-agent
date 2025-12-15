@@ -2,7 +2,7 @@
 
 **An AI Data Engineering Agent that doesn't trust your data.**
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](YOUR_STREAMLIT_APP_URL_HERE)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)]((https://skeptic-analyst-agent-ztl6uttchwjaybfjt5udh8.streamlit.app/))
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -45,31 +45,4 @@ Most data agents are "yes-men." They will happily execute SQL on dirty data, hal
 📸 Screenshots
 <img width="1461" height="765" alt="image" src="https://github.com/user-attachments/assets/f4dec610-d335-4bf9-a237-6f0336f58ed4" />
 
-### 📢 Action 3: The "Persona Takeover" Post
-Once the Streamlit link is live and the README looks good, post this to LinkedIn.
 
-**Copy/Paste this text:**
-
-**Headline:** ⚠️ **WARNING: Stop trusting your data.**
-
-Most AI agents are "helpful." They will happily hallucinate insights from a dirty CSV just to make you happy.
-
-I got tired of "yes-man" AI. So I built **The Skeptic Analyst**.
-
-It’s a paranoid Data Engineering agent. It doesn’t trust your inputs. It dry-runs deletions because it assumes you made a mistake. It audits nulls before it even thinks about plotting a chart.
-
-It’s built on LangChain, DuckDB, Polars, and pure suspicion.
-
-**New in V2.0:**
-🔹 **Dual-Interface:** Works in both the Terminal (CLI) and Web (Streamlit).
-🔹 **ELI5 Mode:** Explains complex schemas using "Lego" analogies.
-🔹 **Safety Previews:** A "Dry Run" layer that prevents accidental data loss.
-
-If you want an AI that flatters you, use ChatGPT. If you want one that actually cleans your pipeline, try this.
-
-🔗 **Live Demo:** [Insert Your Streamlit Link Here]
-💻 **Code:** [Insert Your GitHub Link Here]
-
-#DataEngineering #AI #LangChain #Python #Streamlit #OpenAI #TheSkeptic
-
----
