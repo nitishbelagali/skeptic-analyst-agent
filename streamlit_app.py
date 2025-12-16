@@ -8,6 +8,7 @@ import engineering_tools
 import visualization_tools
 import router_tools
 import rag_tools
+import reporting_tools
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
@@ -56,6 +57,11 @@ st.markdown("""
     .stButton>button:hover {
         transform: scale(1.02);
     }
+    /* Download buttons */
+    .stDownloadButton>button {
+        background: linear-gradient(90deg, #10b981, #059669);
+        color: white;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -70,7 +76,7 @@ if not os.getenv("OPENAI_API_KEY"):
 
 # --- ARTIFACT CLEANUP ON START ---
 if "app_initialized" not in st.session_state:
-    for artifact in ["schema.dot", "dashboard_report.html", "warehouse.db", "dictionary.pdf"]:
+    for artifact in ["schema.dot", "schema.png", "dashboard_report.html", "warehouse.db", "dictionary.pdf"]:
         if os.path.exists(artifact):
             try:
                 os.remove(artifact)
@@ -79,32 +85,59 @@ if "app_initialized" not in st.session_state:
     st.session_state.app_initialized = True
     st.session_state.initial_goal = None
     st.session_state.current_mode = None
+    st.session_state.last_artifact_check = {}
 
 # --- HELPER: RENDER ARTIFACTS ---
 def render_artifacts():
     """Checks for files on disk and renders them."""
+    artifacts_rendered = False
     
     # 1. Schema Diagram (show whenever it exists)
-    if os.path.exists("schema.dot"):
+    if os.path.exists("schema.png"):
         try:
+            # Check if file has been updated
+            file_time = os.path.getmtime("schema.png")
+            last_time = st.session_state.last_artifact_check.get("schema.png", 0)
+            
+            if file_time > last_time:
+                st.caption("📐 Star Schema Entity-Relationship Diagram")
+                st.image("schema.png", use_container_width=True)
+                st.session_state.last_artifact_check["schema.png"] = file_time
+                artifacts_rendered = True
+        except Exception as e:
+            st.error(f"Diagram render error: {e}")
+    
+    elif os.path.exists("schema.dot"):
+        try:
+            # Fallback to Graphviz if PNG not available
             with open("schema.dot", "r") as f:
                 dot_code = f.read()
             if "digraph" in dot_code:
                 st.caption("📐 Star Schema Entity-Relationship Diagram")
                 st.graphviz_chart(dot_code)
+                artifacts_rendered = True
         except Exception as e:
             st.error(f"Diagram render error: {e}")
     
     # 2. Interactive Dashboard
     if os.path.exists("dashboard_report.html"):
-        file_time = os.path.getmtime("dashboard_report.html")
-        st.caption(f"📊 Interactive Dashboard (Generated: {time.ctime(file_time)})")
         try:
-            with open("dashboard_report.html", 'r', encoding='utf-8') as f:
-                html_data = f.read()
-            st.components.v1.html(html_data, height=1000, scrolling=True)
+            file_time = os.path.getmtime("dashboard_report.html")
+            last_time = st.session_state.last_artifact_check.get("dashboard_report.html", 0)
+            
+            if file_time > last_time:
+                st.caption(f"📊 Interactive Dashboard (Generated: {time.ctime(file_time)})")
+                
+                with open("dashboard_report.html", 'r', encoding='utf-8') as f:
+                    html_data = f.read()
+                
+                st.components.v1.html(html_data, height=1000, scrolling=True)
+                st.session_state.last_artifact_check["dashboard_report.html"] = file_time
+                artifacts_rendered = True
         except Exception as e:
             st.error(f"Dashboard render error: {e}")
+    
+    return artifacts_rendered
 
 # --- TOOL DEFINITIONS ---
 
@@ -117,10 +150,37 @@ def run_deep_audit(input_str: str = ""):
         return f"❌ Audit Error: {e}"
 
 @tool
+def generate_pdf(input_str: str = ""):
+    """Generates PDF audit report."""
+    return reporting_tools.generate_pdf_report()
+
+@tool
+def generate_analysis_pdf(analysis_text: str):
+    """Generates PDF report for deep dive text analysis."""
+    return reporting_tools.generate_analysis_pdf(analysis_text)
+
+@tool
+def generate_dashboard_pdf(input_str: str = ""):
+    """Generates PDF report from dashboard."""
+    return reporting_tools.generate_dashboard_pdf()
+
+@tool
 def check_cleaning_options(input_str: str = ""):
     """Returns available cleaning options menu."""
     report, _ = cleaning_tools.session.analyze_options()
     return report
+
+@tool
+def preview_cleaning_fix(input_str: str):
+    """Returns a DRY RUN preview of the fix to verify safety."""
+    try:
+        clean_input = input_str.replace('"', '').replace("'", "").strip()
+        parts = clean_input.split(maxsplit=1)
+        option_id = parts[0].strip()
+        strategy = parts[1].strip() if len(parts) > 1 else ""
+        return cleaning_tools.session.preview_fix(option_id, strategy)
+    except Exception as e:
+        return f"❌ Preview Error: {e}"
 
 @tool
 def apply_cleaning_fix(input_str: str):
@@ -144,6 +204,11 @@ def apply_cleaning_fix(input_str: str):
         return f"❌ Fix Error: {e}"
 
 @tool
+def export_cleaned_data(input_str: str = ""):
+    """Exports current data state to CSV."""
+    return cleaning_tools.session.export_cleaned_data()
+
+@tool
 def detect_data_schema(input_str: str = ""):
     """Analyzes data structure and proposes dimensional model."""
     try:
@@ -152,7 +217,7 @@ def detect_data_schema(input_str: str = ""):
             return "❌ No data loaded."
         
         # Clean up old artifacts
-        for artifact in ["schema.dot", "dashboard_report.html"]:
+        for artifact in ["schema.dot", "schema.png", "dashboard_report.html"]:
             if os.path.exists(artifact):
                 try:
                     os.remove(artifact)
@@ -167,17 +232,30 @@ def detect_data_schema(input_str: str = ""):
 
 @tool
 def generate_schema_diagram(input_str: str = ""):
-    """Generates ERD diagram and saves to schema.dot file."""
+    """Generates ERD diagram and saves to schema.dot/png file."""
     try:
         diagram_dot = engineering_tools.session.get_schema_diagram()
         
         if not diagram_dot:
             return "❌ No schema plan found. Run detect_data_schema first."
         
+        # Save DOT file
         with open("schema.dot", "w") as f:
             f.write(diagram_dot)
         
-        return "✅ Diagram generated and saved to disk. It will render above this message."
+        # Try to generate PNG using graphviz
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["dot", "-Tpng", "schema.dot", "-o", "schema.png"],
+                check=True,
+                capture_output=True,
+                timeout=10
+            )
+            return "✅ Diagram generated and saved. It will render above this message."
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            # Graphviz not installed or failed - just use DOT
+            return "✅ Diagram generated (schema.dot). Install graphviz for PNG rendering."
         
     except Exception as e:
         return f"❌ Diagram Error: {e}"
@@ -190,7 +268,69 @@ def modify_schema_plan(input_str: str):
             return "❌ Error: Input must be 'column_name, role' (e.g., 'stream_count, dimension')"
         
         col, role = input_str.split(",", 1)
-        return engineering_tools.session.modify_schema_plan(col.strip(), role.strip())
+        col = col.strip()
+        role = role.strip()
+        
+        # Validate the change first
+        df = cleaning_tools.session.current_df
+        if df is None:
+            return "❌ No data loaded."
+        
+        if col not in df.columns:
+            return f"❌ Column '{col}' not found in dataset."
+        
+        # Calculate cardinality
+        total_rows = df.height
+        unique_count = df[col].n_unique()
+        cardinality_ratio = unique_count / total_rows if total_rows > 0 else 0
+        
+        is_numeric = df[col].dtype.is_numeric()
+        
+        # Decision logic
+        should_be_dimension = cardinality_ratio < 0.05 or (cardinality_ratio < 0.2 and not is_numeric)
+        should_be_fact = is_numeric and cardinality_ratio > 0.5
+        
+        # Validate user's request
+        role_lower = role.lower()
+        
+        if "fact" in role_lower or "measure" in role_lower:
+            if not should_be_fact and cardinality_ratio < 0.5:
+                return f"""❌ I cannot change '{col}' to a fact because:
+- It has {unique_count} unique values ({cardinality_ratio*100:.1f}% cardinality)
+- {'It is not numeric' if not is_numeric else 'Low cardinality suggests categorical data'}
+- Facts should be numeric measurements with high cardinality (>50%)
+
+Recommendation: Keep '{col}' as a dimension.
+
+Does the current model make sense? (yes/no)"""
+        
+        elif "dim" in role_lower:
+            if cardinality_ratio > 0.9:
+                return f"""❌ I cannot change '{col}' to a dimension because:
+- It has {unique_count} unique values ({cardinality_ratio*100:.1f}% cardinality)
+- Very high cardinality suggests it's a measured value
+- Dimensions should be categorical with low cardinality (<10%)
+
+Recommendation: Keep '{col}' as a fact.
+
+Does the current model make sense? (yes/no)"""
+        
+        # If validation passes, apply the change
+        result = engineering_tools.session.modify_schema_plan(col, role)
+        
+        # Regenerate diagram
+        try:
+            diagram_dot = engineering_tools.session.get_schema_diagram()
+            with open("schema.dot", "w") as f:
+                f.write(diagram_dot)
+            
+            import subprocess
+            subprocess.run(["dot", "-Tpng", "schema.dot", "-o", "schema.png"], 
+                          check=True, capture_output=True, timeout=10)
+        except:
+            pass
+        
+        return result
         
     except Exception as e:
         return f"❌ Modify Error: {e}"
@@ -203,35 +343,32 @@ def apply_schema_transformation(input_str: str = ""):
         if df is None:
             return "❌ No data to transform."
         
-        # Clean up diagram (no longer needed after transformation)
-        if os.path.exists("schema.dot"):
-            try:
-                os.remove("schema.dot")
-            except:
-                pass
-        
         return engineering_tools.session.apply_transformation(df)
         
     except Exception as e:
         return f"❌ Transformation Error: {e}"
-    
-@tool
-def preview_cleaning_fix(input_str: str):
-    """Returns a DRY RUN preview of the fix to verify safety."""
-    try:
-        clean_input = input_str.replace('"', '').replace("'", "").strip()
-        parts = clean_input.split(maxsplit=1)
-        option_id = parts[0].strip()
-        strategy = parts[1].strip() if len(parts) > 1 else ""
-        return cleaning_tools.session.preview_fix(option_id, strategy)
-    except Exception as e:
-        return f"❌ Preview Error: {e}"
 
 @tool
 def load_to_warehouse(input_str: str = ""):
     """Loads transformed tables into DuckDB data warehouse."""
     try:
-        return engineering_tools.session.load_to_duckdb()
+        result = engineering_tools.session.load_to_duckdb()
+        
+        # Generate final ER diagram after loading
+        try:
+            diagram_dot = engineering_tools.session.get_schema_diagram()
+            if diagram_dot:
+                with open("schema.dot", "w") as f:
+                    f.write(diagram_dot)
+                
+                import subprocess
+                subprocess.run(["dot", "-Tpng", "schema.dot", "-o", "schema.png"],
+                              check=True, capture_output=True, timeout=10)
+        except:
+            pass
+        
+        return result
+        
     except Exception as e:
         return f"❌ Warehouse Loading Error: {e}"
 
@@ -251,7 +388,7 @@ def answer_with_sql(user_question: str):
         schema = engineering_tools.session.get_schema_info()
         
         if "Error" in schema or "doesn't exist" in schema or "No database" in schema:
-            return "⚠️ Data warehouse not built yet. Please run 'Analyze the data' first to build the schema."
+            return "⚠️ Data warehouse not built yet. Please run transformation first."
         
         llm = ChatOpenAI(model="gpt-4o", temperature=0)
         
@@ -294,7 +431,7 @@ def create_dashboard(input_str: str = ""):
         # Verify file was created
         if os.path.exists("dashboard_report.html"):
             file_size = os.path.getsize("dashboard_report.html")
-            return f"✅ Dashboard generated successfully: {result} ({file_size:,} bytes). It will render above."
+            return f"✅ Dashboard generated successfully ({file_size:,} bytes). It will render above this message."
         else:
             return f"⚠️ Dashboard tool completed but file not found. Result: {result}"
             
@@ -304,9 +441,13 @@ def create_dashboard(input_str: str = ""):
 # --- REGISTER ALL TOOLS ---
 tools = [
     run_deep_audit,
+    generate_pdf,
+    generate_analysis_pdf,
+    generate_dashboard_pdf,
     check_cleaning_options,
     preview_cleaning_fix,
     apply_cleaning_fix,
+    export_cleaned_data,
     detect_data_schema,
     generate_schema_diagram,
     modify_schema_plan,
@@ -384,7 +525,7 @@ with st.sidebar:
         
         if "current_file" not in st.session_state or st.session_state.current_file != filename:
             # Clean up old artifacts
-            for artifact in ["schema.dot", "dashboard_report.html", "warehouse.db"]:
+            for artifact in ["schema.dot", "schema.png", "dashboard_report.html", "warehouse.db"]:
                 if os.path.exists(artifact):
                     try:
                         os.remove(artifact)
@@ -400,6 +541,7 @@ with st.sidebar:
                 st.session_state.current_file = filename
                 st.session_state.initial_goal = None
                 st.session_state.current_mode = None
+                st.session_state.last_artifact_check = {}
                 
                 st.success(f"✅ Loaded: {filename}\n📊 {df.height} rows × {df.width} columns")
                 
@@ -426,13 +568,46 @@ with st.sidebar:
     
     st.divider()
     
+    # Download buttons for generated files
+    st.subheader("📥 Downloads")
+    
+    # Audit PDF
+    if os.path.exists("Audit_Report.pdf"):
+        with open("Audit_Report.pdf", "rb") as f:
+            st.download_button("📄 Audit Report (PDF)", f, "Audit_Report.pdf", "application/pdf")
+    
+    # Analysis PDF
+    if os.path.exists("Deep_Dive_Analysis.pdf"):
+        with open("Deep_Dive_Analysis.pdf", "rb") as f:
+            st.download_button("📊 Analysis Report (PDF)", f, "Deep_Dive_Analysis.pdf", "application/pdf")
+    
+    # Dashboard PDF
+    if os.path.exists("Dashboard_Report.pdf"):
+        with open("Dashboard_Report.pdf", "rb") as f:
+            st.download_button("📈 Dashboard (PDF)", f, "Dashboard_Report.pdf", "application/pdf")
+    
+    # Dashboard HTML
+    if os.path.exists("dashboard_report.html"):
+        with open("dashboard_report.html", "rb") as f:
+            st.download_button("🌐 Dashboard (HTML)", f, "dashboard_report.html", "text/html")
+    
+    # Cleaned Data CSV
+    if "current_file" in st.session_state:
+        clean_filename = f"clean_{st.session_state.current_file}"
+        if os.path.exists(clean_filename):
+            with open(clean_filename, "rb") as f:
+                st.download_button("🧹 Cleaned Data (CSV)", f, clean_filename, "text/csv")
+    
+    st.divider()
+    
     # Reset button
     if st.button("🔄 Reset Conversation"):
         st.session_state.messages = []
         st.session_state.initial_goal = None
         st.session_state.current_mode = None
+        st.session_state.last_artifact_check = {}
         
-        for artifact in ["schema.dot", "dashboard_report.html"]:
+        for artifact in ["schema.dot", "schema.png", "dashboard_report.html"]:
             if os.path.exists(artifact):
                 try:
                     os.remove(artifact)
@@ -475,8 +650,8 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Render artifacts ONCE at the end
-render_artifacts()
+# Render artifacts BEFORE chat input (so they appear above new messages)
+artifacts_exist = render_artifacts()
 
 # Handle user input
 if user_prompt := st.chat_input("Ask me to analyze your data..."):
@@ -486,26 +661,27 @@ if user_prompt := st.chat_input("Ask me to analyze your data..."):
         st.stop()
     
     # Capture user's original goal for storytelling context
-    triggers = ["analyze", "find", "get", "show", "trend", "give", "which", "what", "how"]
-    if any(t in user_prompt.lower() for t in triggers):
-        # Only update goal if it's a new primary question
-        if not any(word in user_prompt.lower() for word in ["why", "explain", "tell me more"]):
-            st.session_state.initial_goal = user_prompt
+    # ONLY capture if this is a NEW primary question (not a follow-up)
+    if not any(word in user_prompt.lower() for word in ["yes", "no", "1", "2", "proceed", "why", "explain", "tell me more"]):
+        # This looks like a new primary request
+        st.session_state.initial_goal = user_prompt
     
     # Special handling for option shortcuts
+    original_prompt = user_prompt  # Keep original for display
+    
     if user_prompt.strip() == "1":
-        goal = st.session_state.get("initial_goal", "General Analysis")
+        goal = st.session_state.get("initial_goal", "the data")
         user_prompt = f"Generate a detailed text data story. Explicitly answer: '{goal}'"
     
     elif user_prompt.strip() == "2":
-        goal = st.session_state.get("initial_goal", "General Analysis")
+        goal = st.session_state.get("initial_goal", "the data")
         user_prompt = f"Create the dashboard and write a visual story answering: '{goal}'"
     
     # Add user message
-    st.session_state.messages.append({"role": "user", "content": user_prompt})
+    st.session_state.messages.append({"role": "user", "content": original_prompt})
     
     with st.chat_message("user"):
-        st.markdown(user_prompt)
+        st.markdown(original_prompt)
     
     # Generate agent response
     with st.chat_message("assistant"):
@@ -514,8 +690,13 @@ if user_prompt := st.chat_input("Ask me to analyze your data..."):
                 # Classify intent (but respect current mode)
                 intent = router_tools.router.classify_intent(user_prompt)
                 
+                # CRITICAL: If we're in data_engineer mode and user types "1" or "2",
+                # this is selecting Deep Dive vs Dashboard - STAY in data_engineer mode
+                if st.session_state.current_mode == "data_engineer" and user_prompt.strip() in ["1", "2"]:
+                    intent = "data_engineer"
+                
                 # If we're already in a mode and user gives a simple response, stay in that mode
-                if st.session_state.current_mode:
+                elif st.session_state.current_mode:
                     # Check if input is a cleaning option (digit or "digit strategy")
                     first_word = user_prompt.strip().split()[0]
                     if first_word.isdigit() and st.session_state.current_mode == "clean_data":
@@ -550,10 +731,15 @@ if user_prompt := st.chat_input("Ask me to analyze your data..."):
                 # Smart rerun: Only if artifacts were likely created
                 should_rerun = False
                 
-                if "diagram" in output_text.lower() and ("generated" in output_text.lower() or "saved to disk" in output_text.lower()):
+                # Check if diagram or dashboard was just generated
+                if "diagram" in output_text.lower() and ("generated" in output_text.lower() or "saved" in output_text.lower()):
                     should_rerun = True
                 
                 if "dashboard" in output_text.lower() and "generated" in output_text.lower():
+                    should_rerun = True
+                
+                # Check if transformation completed (ER diagram should now exist)
+                if "warehouse created" in output_text.lower() or "transformation complete" in output_text.lower():
                     should_rerun = True
                 
                 if should_rerun:

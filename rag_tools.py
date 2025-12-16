@@ -1,7 +1,7 @@
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
-from langchain_text_splitters import CharacterTextSplitter  # <--- UPDATED IMPORT
+from langchain.text_splitter import CharacterTextSplitter
 from langchain_core.tools import tool
 
 class RagSession:

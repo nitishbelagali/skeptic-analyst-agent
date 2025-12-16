@@ -10,4 +10,12 @@
 .env
 .venv/
 __pycache__/
-.DS_Store
+.DS_Store.env
+venv/
+__pycache__/
+*.db
+*.csv
+*.pdf
+*.html
+*.png
+*.dot

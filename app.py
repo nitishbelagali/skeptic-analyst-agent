@@ -1,103 +1,150 @@
-import os
-import glob
-import platform
+import streamlit as st
 import polars as pl
+import os
 import time
-from dotenv import load_dotenv
-
-# Rich UI Imports
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import track
-from rich.prompt import Prompt
-from rich.markdown import Markdown
-from rich.status import Status
-
-# Tool Imports
-import audit_tools
-import reporting_tools
 import cleaning_tools
-import router_tools
+import audit_tools
 import engineering_tools
 import visualization_tools
-
-# LangChain Imports
+import router_tools
+import rag_tools
+import reporting_tools
 from langchain.agents import create_react_agent, AgentExecutor
-from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
+from langchain_core.tools import tool
+from langchain_core.prompts import PromptTemplate
+from dotenv import load_dotenv
+import streamlit.components.v1 as components
 
-# --- SETUP ---
+# --- PAGE CONFIG ---
+st.set_page_config(
+    page_title="Skeptic Analyst Pro",
+    layout="wide",
+    page_icon="🤖",
+    initial_sidebar_state="expanded"
+)
+
+# --- MODERN UI CSS (Glassmorphism) ---
+st.markdown("""
+<style>
+    /* Main Background */
+    .stApp {
+        background: linear-gradient(to right, #0f172a, #1e293b);
+        color: #e2e8f0;
+    }
+    /* Cards/Containers */
+    .stChatFloatingInputContainer, .stChatMessage {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+    }
+    /* Headers */
+    h1, h2, h3 {
+        color: #38bdf8 !important;
+        font-family: 'Helvetica Neue', sans-serif;
+    }
+    /* Buttons */
+    .stButton>button {
+        background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        transition: transform 0.2s;
+    }
+    .stButton>button:hover {
+        transform: scale(1.02);
+    }
+    /* Download buttons */
+    .stDownloadButton>button {
+        background: linear-gradient(90deg, #10b981, #059669);
+        color: white;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🤖 Skeptic Analyst Agent")
+st.caption("The paranoid AI data engineer that audits, cleans, and visualizes your data.")
+
+# Load Environment
 load_dotenv()
-console = Console() # Initialize Rich Console
+if not os.getenv("OPENAI_API_KEY"):
+    st.error("❌ OpenAI API Key not found. Please check your .env file.")
+    st.stop()
 
-# --- UTILITY FUNCTIONS ---
-def open_file(filepath):
-    """Opens file with default application (cross-platform)"""
-    system = platform.system()
-    try:
-        if system == "Darwin":  # macOS
-            os.system(f"open '{filepath}'")
-        elif system == "Windows":
-            os.system(f'start "" "{filepath}"')
-        else:  # Linux
-            os.system(f"xdg-open '{filepath}'")
-    except Exception as e:
-        console.print(f"[red]Could not auto-open file: {e}[/red]")
+# --- ARTIFACT CLEANUP ON START ---
+if "app_initialized" not in st.session_state:
+    for artifact in ["schema.dot", "schema.png", "dashboard_report.html", "warehouse.db", "dictionary.pdf"]:
+        if os.path.exists(artifact):
+            try:
+                os.remove(artifact)
+            except:
+                pass
+    st.session_state.app_initialized = True
+    st.session_state.initial_goal = None
+    st.session_state.current_mode = None
+    st.session_state.last_artifact_check = {}
 
-# --- PART 1: LOAD DATA ---
-def load_data():
-    """Interactive file selector with error handling"""
-    console.print("\n[bold cyan]🔍 SCANNING FOR DATASETS...[/bold cyan]")
-    csv_files = glob.glob("*.csv")
+# --- HELPER: RENDER ARTIFACTS ---
+def render_artifacts():
+    """Checks for files on disk and renders them."""
+    artifacts_rendered = False
     
-    if not csv_files:
-        console.print("[red]❌ No CSV files found in current directory![/red]")
-        console.print("[yellow]💡 Tip: Add a CSV file and run again.[/yellow]")
-        return None, None
-    
-    console.print(f"Found [bold]{len(csv_files)}[/bold] CSV file(s):")
-    for i, file in enumerate(csv_files, 1):
-        console.print(f"  [green]{i}. {file}[/green]")
-    
-    while True:
+    # 1. Schema Diagram (show whenever it exists)
+    if os.path.exists("schema.png"):
         try:
-            selection = Prompt.ask("\nSelect a file number (or 'q' to quit)")
+            # Check if file has been updated
+            file_time = os.path.getmtime("schema.png")
+            last_time = st.session_state.last_artifact_check.get("schema.png", 0)
             
-            if selection.lower() in ['q', 'quit', 'exit']:
-                return None, None
+            if file_time > last_time:
+                st.caption("📐 Star Schema Entity-Relationship Diagram")
+                st.image("schema.png", use_container_width=True)
+                st.session_state.last_artifact_check["schema.png"] = file_time
+                artifacts_rendered = True
+        except Exception as e:
+            st.error(f"Diagram render error: {e}")
+    
+    elif os.path.exists("schema.dot"):
+        try:
+            # Fallback to Graphviz if PNG not available
+            with open("schema.dot", "r") as f:
+                dot_code = f.read()
+            if "digraph" in dot_code:
+                st.caption("📐 Star Schema Entity-Relationship Diagram")
+                st.graphviz_chart(dot_code)
+                artifacts_rendered = True
+        except Exception as e:
+            st.error(f"Diagram render error: {e}")
+    
+    # 2. Interactive Dashboard
+    if os.path.exists("dashboard_report.html"):
+        try:
+            file_time = os.path.getmtime("dashboard_report.html")
+            last_time = st.session_state.last_artifact_check.get("dashboard_report.html", 0)
             
-            idx = int(selection) - 1
-            
-            if 0 <= idx < len(csv_files):
-                filename = csv_files[idx]
-                console.print(f"\n[dim]👀 SKEPTIC AGENT: Loading '{filename}'...[/dim]")
+            if file_time > last_time:
+                st.caption(f"📊 Interactive Dashboard (Generated: {time.ctime(file_time)})")
                 
-                try:
-                    df = pl.read_csv(filename, ignore_errors=True, try_parse_dates=True)
-                    console.print(f"[bold green]✅ Loaded {df.height} rows, {df.width} columns[/bold green]\n")
-                    return df, filename
-                except Exception as e:
-                    console.print(f"[red]❌ Error reading file: {e}[/red]")
-                    return None, None
-            else:
-                console.print(f"[red]❌ Please enter a number between 1 and {len(csv_files)}.[/red]")
+                with open("dashboard_report.html", 'r', encoding='utf-8') as f:
+                    html_data = f.read()
                 
-        except ValueError:
-            console.print("[red]❌ Please enter a valid number.[/red]")
-        except KeyboardInterrupt:
-            console.print("\n\n[yellow]👋 Interrupted by user.[/yellow]")
-            return None, None
+                st.components.v1.html(html_data, height=1000, scrolling=True)
+                st.session_state.last_artifact_check["dashboard_report.html"] = file_time
+                artifacts_rendered = True
+        except Exception as e:
+            st.error(f"Dashboard render error: {e}")
+    
+    return artifacts_rendered
 
-# --- PART 2: TOOL DEFINITIONS ---
+# --- TOOL DEFINITIONS ---
+
 @tool
 def run_deep_audit(input_str: str = ""):
-    """Runs comprehensive data audit on current dataset."""
+    """Runs comprehensive audit on current data."""
     try:
-        # Visual flair: fake progress bar for the audit
-        for _ in track(range(10), description="[cyan]Auditing columns...[/cyan]"):
-            time.sleep(0.05) 
         return audit_tools.run_all_checks(cleaning_tools.session.current_df)
     except Exception as e:
         return f"❌ Audit Error: {e}"
@@ -105,18 +152,21 @@ def run_deep_audit(input_str: str = ""):
 @tool
 def generate_pdf(input_str: str = ""):
     """Generates PDF audit report."""
-    with console.status("[bold blue]Generating PDF Report...", spinner="material"):
-        return reporting_tools.generate_pdf_report()
+    return reporting_tools.generate_pdf_report()
 
 @tool
-def email_report(email_address: str):
-    """Sends audit report via email (simulated)."""
-    clean_email = email_address.strip(' "\'')
-    return reporting_tools.send_email_report(clean_email)
+def generate_analysis_pdf(analysis_text: str):
+    """Generates PDF report for deep dive text analysis."""
+    return reporting_tools.generate_analysis_pdf(analysis_text)
+
+@tool
+def generate_dashboard_pdf(input_str: str = ""):
+    """Generates PDF report from dashboard."""
+    return reporting_tools.generate_dashboard_pdf()
 
 @tool
 def check_cleaning_options(input_str: str = ""):
-    """Analyzes data and returns available cleaning options."""
+    """Returns available cleaning options menu."""
     report, _ = cleaning_tools.session.analyze_options()
     return report
 
@@ -134,27 +184,15 @@ def preview_cleaning_fix(input_str: str):
 
 @tool
 def apply_cleaning_fix(input_str: str):
-    """Applies data cleaning fix. Input: 'option_id strategy'"""
+    """Applies cleaning fix. Input: 'option_id strategy'."""
     try:
         clean_input = input_str.replace('"', '').replace("'", "").strip()
         parts = clean_input.replace(",", " ").split(maxsplit=1)
-        
         option_id = parts[0].strip()
         strategy = parts[1].strip() if len(parts) > 1 else ""
         
-        # Fuzzy matching for common strategy names
-        if strategy:
-            s = strategy.lower()
-            if s in ["median", "med"]: strategy = "replace with median"
-            elif s in ["cap", "threshold"]: strategy = "cap at threshold"
-            elif s in ["remove", "drop", "delete"]: strategy = "remove rows"
-            elif s in ["mean", "avg", "average"]: strategy = "mean"
-            elif s in ["zero", "0"]: strategy = "zero"
-            elif s in ["mode"]: strategy = "mode"
-        
-        with console.status("[bold green]Applying fixes...", spinner="dots"):
-            result = cleaning_tools.session.apply_fix(option_id, strategy)
-            cleaning_tools.session.export_cleaned_data()
+        result = cleaning_tools.session.apply_fix(option_id, strategy)
+        cleaning_tools.session.export_cleaned_data()
         
         try:
             summary = cleaning_tools.session.get_summary()
@@ -164,13 +202,6 @@ def apply_cleaning_fix(input_str: str):
             
     except Exception as e:
         return f"❌ Fix Error: {e}"
-
-@tool
-def undo_last_fix(input_str: str = ""):
-    """Reverts the last cleaning operation."""
-    result = cleaning_tools.session.undo()
-    cleaning_tools.session.export_cleaned_data()
-    return result
 
 @tool
 def export_cleaned_data(input_str: str = ""):
@@ -183,10 +214,91 @@ def detect_data_schema(input_str: str = ""):
     try:
         df = cleaning_tools.session.current_df
         if df is None or df.height == 0:
-            return "❌ No data loaded or data is empty."
-        return engineering_tools.session.detect_schema(df)
+            return "❌ No data loaded."
+        
+        # Clean up old artifacts
+        for artifact in ["schema.dot", "schema.png", "dashboard_report.html"]:
+            if os.path.exists(artifact):
+                try:
+                    os.remove(artifact)
+                except:
+                    pass
+        
+        plan = engineering_tools.session.detect_schema(df)
+        return f"{plan}\n\n(Schema plan created. Ask user if they want to see the visual diagram.)"
+        
     except Exception as e:
         return f"❌ Schema Detection Error: {e}"
+
+@tool
+def generate_schema_diagram(input_str: str = ""):
+    """Generates ERD diagram and saves to schema.dot/png file."""
+    try:
+        diagram_dot = engineering_tools.session.get_schema_diagram()
+        
+        if not diagram_dot:
+            return "❌ No schema plan found. Run detect_data_schema first."
+        
+        # Save DOT file
+        with open("schema.dot", "w") as f:
+            f.write(diagram_dot)
+        
+        # Try to generate PNG using graphviz
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["dot", "-Tpng", "schema.dot", "-o", "schema.png"],
+                check=True,
+                capture_output=True,
+                timeout=10
+            )
+            return "✅ Diagram generated and saved. It will render above this message."
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            # Graphviz not installed or failed - just use DOT
+            return "✅ Diagram generated (schema.dot). Install graphviz for PNG rendering."
+        
+    except Exception as e:
+        return f"❌ Diagram Error: {e}"
+
+@tool
+def modify_schema_plan(input_str: str):
+    """Manually adjusts schema classification. Input: 'column_name, new_role'."""
+    try:
+        if "," not in input_str:
+            return "❌ Error: Input must be 'column_name, role' (e.g., 'stream_count, dimension')"
+        
+        col, role = input_str.split(",", 1)
+        col = col.strip()
+        role = role.strip()
+        
+        # Validate the change first
+        df = cleaning_tools.session.current_df
+        if df is None:
+            return "❌ No data loaded."
+        
+        if col not in df.columns:
+            return f"❌ Column '{col}' not found in dataset."
+        
+        # Pass dataframe context to engineering tool for smart validation
+        result = engineering_tools.session.modify_schema_plan(col, role, df_context=df)
+        
+        # Regenerate diagram if successful
+        if "✅" in result:
+            try:
+                diagram_dot = engineering_tools.session.get_schema_diagram()
+                with open("schema.dot", "w") as f:
+                    f.write(diagram_dot)
+                
+                import subprocess
+                subprocess.run(["dot", "-Tpng", "schema.dot", "-o", "schema.png"], 
+                              check=True, capture_output=True, timeout=10)
+            except:
+                pass
+        
+        return result
+        
+    except Exception as e:
+        return f"❌ Modify Error: {e}"
 
 @tool
 def apply_schema_transformation(input_str: str = ""):
@@ -196,8 +308,8 @@ def apply_schema_transformation(input_str: str = ""):
         if df is None:
             return "❌ No data to transform."
         
-        with console.status("[bold purple]Transforming Data Structure...", spinner="earth"):
-            return engineering_tools.session.apply_transformation(df)
+        return engineering_tools.session.apply_transformation(df)
+        
     except Exception as e:
         return f"❌ Transformation Error: {e}"
 
@@ -205,98 +317,106 @@ def apply_schema_transformation(input_str: str = ""):
 def load_to_warehouse(input_str: str = ""):
     """Loads transformed tables into DuckDB data warehouse."""
     try:
-        with console.status("[bold blue]Loading to Data Warehouse...", spinner="bouncingBar"):
-            return engineering_tools.session.load_to_duckdb()
+        result = engineering_tools.session.load_to_duckdb()
+        return result
+        
     except Exception as e:
         return f"❌ Warehouse Loading Error: {e}"
 
 @tool
 def get_cleaning_history(input_str: str = ""):
-    """Returns the history of cleaning actions taken."""
+    """Returns history of cleaning actions taken."""
     if hasattr(cleaning_tools.session, 'cleaning_history'):
         history = cleaning_tools.session.cleaning_history
         if history:
-            return "\n".join(history)
+            return "Cleaning actions taken:\n" + "\n".join([f"- {h}" for h in history])
     return "No cleaning actions recorded yet."
 
 @tool
 def answer_with_sql(user_question: str):
     """Generates SQL query from natural language and executes it."""
     try:
-        schema_info = engineering_tools.session.get_schema_info()
+        schema = engineering_tools.session.get_schema_info()
         
-        if "Error" in schema_info or "doesn't exist" in schema_info:
-            return "❌ Data warehouse not found. Run transformation pipeline first."
+        if "Error" in schema or "doesn't exist" in schema or "No database" in schema:
+            return "⚠️ Data warehouse not built yet. Please run transformation first."
         
-        sql_prompt = f"""You are a SQL expert. Given this DuckDB database schema:
+        llm = ChatOpenAI(model="gpt-4o", temperature=0)
+        
+        prompt = f"""You are a SQL expert. Given this DuckDB database schema:
 
-{schema_info}
+{schema}
 
 Write a SQL query to answer: "{user_question}"
 
 Rules:
 - Return ONLY the raw SQL query, no markdown formatting
 - Use proper JOINs between fact and dimension tables
-- Use aggregations (COUNT, SUM, AVG) where appropriate
-- Ensure all column references are valid
+- Use only columns that exist in the schema
+- For nested questions, use CTEs (WITH clauses) or subqueries
+- Use aggregations (COUNT, SUM, AVG, MAX, MIN) where appropriate
         """
         
-        llm_sql = ChatOpenAI(model="gpt-4o", temperature=0)
-        response = llm_sql.invoke(sql_prompt)
-        generated_sql = response.content.strip().replace("```sql", "").replace("```", "").strip()
+        response = llm.invoke(prompt)
+        sql = response.content.strip().replace("```sql", "").replace("```", "").strip()
         
-        # console.print(f"\n[dim][DEBUG] Generated SQL:\n{generated_sql}[/dim]\n")
+        result_df = engineering_tools.session.query_database(sql)
         
-        result = engineering_tools.session.query_database(generated_sql)
+        # Truncate large results
+        if hasattr(result_df, 'shape') and len(result_df) > 10:
+            result_str = str(result_df.head(10)) + f"\n\n... ({len(result_df) - 10} more rows)"
+        else:
+            result_str = str(result_df)
         
-        return f"Query executed successfully.\nSQL:\n{generated_sql}\n\nRESULT:\n{result}"
+        return f"Query executed successfully.\n\nSQL:\n{sql}\n\nRESULT:\n{result_str}"
         
     except Exception as e:
         return f"❌ SQL Query Error: {e}"
 
 @tool
 def create_dashboard(input_str: str = ""):
-    """Generates executive dashboard with automated charts."""
+    """Generates visual dashboard with automated charts."""
     try:
-        with console.status("[bold yellow]Rendering Visualization...", spinner="bouncingBar"):
-            result = visualization_tools.session.generate_dashboard(context=input_str)
+        # Call the tool (which now returns PATH + STATS)
+        result = visualization_tools.visualize_data_tool(input_str)
         
-        if "dashboard_report.html" in str(result):
-            open_file("dashboard_report.html")
+        # Verify file was created
+        if os.path.exists("dashboard_report.html"):
+            return result
+        else:
+            return f"⚠️ Dashboard tool completed but file not found. Result: {result}"
             
-        return f"✅ Dashboard generated: {result}"
     except Exception as e:
         return f"❌ Dashboard Error: {e}"
 
-# --- PART 3: TOOL REGISTRATION ---
+# --- REGISTER ALL TOOLS ---
 tools = [
     run_deep_audit,
     generate_pdf,
-    email_report,
+    generate_analysis_pdf,
+    generate_dashboard_pdf,
     check_cleaning_options,
-    preview_cleaning_fix, # New v2.0 Tool
+    preview_cleaning_fix,
     apply_cleaning_fix,
-    undo_last_fix,
     export_cleaned_data,
     detect_data_schema,
+    generate_schema_diagram,
+    modify_schema_plan,
     apply_schema_transformation,
     load_to_warehouse,
     get_cleaning_history,
     answer_with_sql,
-    create_dashboard
+    create_dashboard,
+    rag_tools.consult_data_dictionary
 ]
 
-# --- PART 4: AGENT CONFIGURATION ---
-def setup_agent(eli5_mode=False):
+# --- AGENT SETUP ---
+if "agent_executor" not in st.session_state:
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
-
+    
     with open("instructions.txt", "r", encoding="utf-8") as f:
         system_instructions = f.read()
-
-    # ELI5 Logic Injection
-    if eli5_mode:
-        system_instructions += "\n\nCRITICAL STYLE OVERRIDE: EXPLAIN EVERYTHING LIKE I AM 5 YEARS OLD. USE ANALOGIES (Legos, Pizza, Toys)."
-
+    
     template = system_instructions + """
 
 TOOLS:
@@ -323,125 +443,270 @@ Previous Conversation:
 New User Input: {input}
 {agent_scratchpad}
 """
-
+    
     prompt = PromptTemplate.from_template(template)
     agent = create_react_agent(llm, tools, prompt)
     memory = ConversationBufferMemory(memory_key="chat_history")
-
-    agent_executor = AgentExecutor(
+    
+    st.session_state.agent_executor = AgentExecutor(
         agent=agent,
         tools=tools,
-        verbose=False, # Set to False so we can control output with Rich
+        verbose=False,
         memory=memory,
         handle_parsing_errors=True,
         max_iterations=15
     )
-    return agent_executor, memory
 
-# --- PART 5: MAIN APPLICATION LOOP ---
-def main():
-    """Main entry point for the Skeptic Analyst Agent"""
-    console.clear()
-    console.print(Panel.fit(
-        "[bold cyan]🤖 SKEPTIC ANALYST AGENT v2.0[/bold cyan]\n[dim]Your Paranoid Data Quality Assistant[/dim]",
-        border_style="cyan"
-    ))
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("📂 Data Upload")
+    st.divider()
+    eli5_mode = st.toggle("👶 Explain Like I'm 5", value=False)
+    if eli5_mode:
+        st.caption("Mode: Simple analogies enabled.")
     
-    while True:
+    # 1. CSV Uploader
+    uploaded_file = st.file_uploader("1. Upload Data (CSV)", type=["csv"])
+    
+    if uploaded_file:
+        filename = uploaded_file.name
+        
+        with open(filename, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        if "current_file" not in st.session_state or st.session_state.current_file != filename:
+            # Clean up old artifacts
+            for artifact in ["schema.dot", "schema.png", "dashboard_report.html", "warehouse.db"]:
+                if os.path.exists(artifact):
+                    try:
+                        os.remove(artifact)
+                    except:
+                        pass
+            
+            try:
+                df = pl.read_csv(filename, ignore_errors=True, try_parse_dates=True)
+                
+                cleaning_tools.session.load_frame(df, source_filename=filename)
+                engineering_tools.session.reset()
+                
+                st.session_state.current_file = filename
+                st.session_state.initial_goal = None
+                st.session_state.current_mode = None
+                st.session_state.last_artifact_check = {}
+                
+                st.success(f"✅ Loaded: {filename}\n📊 {df.height} rows × {df.width} columns")
+                
+            except Exception as e:
+                st.error(f"❌ Error loading file: {e}")
+    
+    st.divider()
+    
+    # 2. PDF Uploader (RAG - Optional)
+    uploaded_pdf = st.file_uploader("2. Data Dictionary (PDF - Optional)", type=["pdf"])
+    
+    if uploaded_pdf:
+        pdf_filename = "dictionary.pdf"
+        
+        with open(pdf_filename, "wb") as f:
+            f.write(uploaded_pdf.getbuffer())
+        
         try:
-            # Step 1: File Selection
-            df, filename = load_data()
-            
-            if df is None:
-                console.print("\n[yellow]👋 Goodbye![/yellow]")
-                break
-            
-            # Step 2: Initialize Session
-            cleaning_tools.session.load_frame(df, source_filename=filename)
-            engineering_tools.session.reset()
-            
-            # ELI5 Toggle for CLI
-            eli5_input = Prompt.ask("\n👶 Enable 'Explain Like I'm 5' Mode?", choices=["y", "n"], default="n")
-            eli5_mode = (eli5_input == "y")
-            
-            agent_executor, memory = setup_agent(eli5_mode)
-
-            console.print("="*60)
-            console.print(f"📝 Currently Working On: [bold]{filename}[/bold]")
-            if eli5_mode: console.print("[magenta]👶 ELI5 Mode: ENABLED[/magenta]")
-            console.print("="*60)
-            
-            console.print("\n❓ What would you like to do?")
-            console.print("   Examples:")
-            console.print("   • 'Just audit the data'")
-            console.print("   • 'Clean this dataset'")
-            console.print("   • 'Which region has highest sales?'")
-            
-            # Step 3: Get Initial Intent
-            initial_prompt = console.input("\n[bold yellow]User (You) > [/bold yellow]").strip()
-            
-            if initial_prompt.lower() in ["exit", "quit", "q"]:
-                console.print("\n[yellow]👋 Goodbye![/yellow]")
-                break
-            
-            if not initial_prompt:
-                console.print("[red]❌ Please provide a command.[/red]")
-                continue
-            
-            # Step 4: Route Intent
-            intent = router_tools.router.classify_intent(initial_prompt)
-            console.print(f"\n[dim]{router_tools.router.get_workflow_description(intent)}[/dim]")
-            
-            # Step 5: Add Context Prefix
-            context_prefix = {
-                "audit_only": "MODE A (AUDITOR): ",
-                "clean_data": "MODE B (SURGEON): ",
-                "data_engineer": "MODE C (ENGINEER): "
-            }.get(intent, "")
-            
-            # Step 6: Execute Initial Task
-            with console.status("Thinking...", spinner="dots"):
-                response = agent_executor.invoke({
-                    "input": context_prefix + initial_prompt
-                })
-            
-            # Use Markdown for pretty printing agent response
-            console.print(Panel(Markdown(response['output']), title="Skeptic Agent", border_style="green"))
-            
-            # Step 7: Conversational Loop
-            while True:
-                user_input = console.input("\n[bold yellow]User (You) > [/bold yellow]").strip()
-                
-                # Exit commands
-                if user_input.lower() in ["done", "switch", "new", "restart"]:
-                    console.print("\n[bold cyan]🔄 Switching to new file...[/bold cyan]\n")
-                    break
-                
-                if user_input.lower() in ["exit", "quit", "q"]:
-                    console.print("\n[yellow]👋 Goodbye![/yellow]")
-                    return
-                
-                if not user_input:
-                    continue
-                
-                try:
-                    with console.status("Thinking...", spinner="dots"):
-                        response = agent_executor.invoke({"input": user_input})
-                    
-                    console.print(Panel(Markdown(response['output']), title="Skeptic Agent", border_style="green"))
-                    
-                except Exception as e:
-                    console.print(f"[red]❌ Error: {e}[/red]\n")
-                    console.print("[dim]💡 Try rephrasing your question.[/dim]\n")
-        
-        except KeyboardInterrupt:
-            console.print("\n\n[yellow]👋 Interrupted by user. Goodbye![/yellow]")
-            break
-        
+            with st.spinner("🧠 Reading Dictionary..."):
+                status = rag_tools.session.ingest_document(pdf_filename)
+                st.success(status)
         except Exception as e:
-            console.print(f"\n[red]❌ CRITICAL ERROR: {e}[/red]")
-            console.print("🔄 Restarting...\n")
-            continue
+            st.error(f"❌ RAG Error: {e}")
+    
+    st.divider()
+    
+    # Download buttons for generated files
+    st.subheader("📥 Downloads")
+    
+    # Audit PDF
+    if os.path.exists("Audit_Report.pdf"):
+        with open("Audit_Report.pdf", "rb") as f:
+            st.download_button("📄 Audit Report (PDF)", f, "Audit_Report.pdf", "application/pdf")
+    
+    # Analysis PDF
+    if os.path.exists("Deep_Dive_Analysis.pdf"):
+        with open("Deep_Dive_Analysis.pdf", "rb") as f:
+            st.download_button("📊 Analysis Report (PDF)", f, "Deep_Dive_Analysis.pdf", "application/pdf")
+    
+    # Dashboard PDF
+    if os.path.exists("Dashboard_Report.pdf"):
+        with open("Dashboard_Report.pdf", "rb") as f:
+            st.download_button("📈 Dashboard (PDF)", f, "Dashboard_Report.pdf", "application/pdf")
+    
+    # Dashboard HTML
+    if os.path.exists("dashboard_report.html"):
+        with open("dashboard_report.html", "rb") as f:
+            st.download_button("🌐 Dashboard (HTML)", f, "dashboard_report.html", "text/html")
+    
+    # Cleaned Data CSV
+    if "current_file" in st.session_state:
+        clean_filename = f"clean_{st.session_state.current_file}"
+        if os.path.exists(clean_filename):
+            with open(clean_filename, "rb") as f:
+                st.download_button("🧹 Cleaned Data (CSV)", f, clean_filename, "text/csv")
+    
+    st.divider()
+    
+    # Reset button
+    if st.button("🔄 Reset Conversation"):
+        st.session_state.messages = []
+        st.session_state.initial_goal = None
+        st.session_state.current_mode = None
+        st.session_state.last_artifact_check = {}
+        
+        for artifact in ["schema.dot", "schema.png", "dashboard_report.html"]:
+            if os.path.exists(artifact):
+                try:
+                    os.remove(artifact)
+                except:
+                    pass
+        
+        if "agent_executor" in st.session_state:
+            st.session_state.agent_executor.memory.clear()
+        
+        st.success("Conversation reset!")
+        st.rerun()
+    
+    # Status info
+    if "current_file" in st.session_state:
+        st.divider()
+        st.info(f"📁 Current: {st.session_state.current_file}")
+        if st.session_state.current_mode:
+            mode_display = {
+                "audit_only": "🔍 Audit Mode",
+                "clean_data": "🔧 Cleaning Mode",
+                "data_engineer": "🧠 Engineering Mode"
+            }.get(st.session_state.current_mode, "")
+            if mode_display:
+                st.info(f"🎯 Mode: {mode_display}")
 
-if __name__ == "__main__":
-    main()
+# --- MAIN CHAT INTERFACE ---
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "I am the Skeptic Analyst. Upload a CSV file, and I will audit it with extreme prejudice."
+        }
+    ]
+
+if "current_mode" not in st.session_state:
+    st.session_state.current_mode = None
+
+# Render chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Render artifacts BEFORE chat input (so they appear above new messages)
+artifacts_exist = render_artifacts()
+
+# Handle user input
+if user_prompt := st.chat_input("Ask me to analyze your data..."):
+    # Check if file is loaded
+    if "current_file" not in st.session_state:
+        st.warning("⚠️ Please upload a CSV file first!")
+        st.stop()
+    
+    # BUG FIX: CAPTURE GOAL CORRECTLY
+    # Don't let "0", "1", "2" overwrite the actual analysis goal
+    ignore_list = ["yes", "no", "0", "1", "2", "proceed", "why", "explain", "tell me more", "confirm"]
+    
+    # Only update goal if it's a real sentence and NOT in the ignore list
+    if not any(word == user_prompt.lower().strip() for word in ignore_list):
+        st.session_state.initial_goal = user_prompt
+    
+    # Fallback: If goal is still None (e.g. started with "Clean data"), set a default
+    if st.session_state.initial_goal is None:
+        st.session_state.initial_goal = "General Data Analysis"
+    
+    # Special handling for option shortcuts
+    original_prompt = user_prompt  # Keep original for display
+    
+    if user_prompt.strip() == "1":
+        goal = st.session_state.initial_goal
+        user_prompt = f"Generate a detailed text data story. Explicitly answer: '{goal}'"
+    
+    elif user_prompt.strip() == "2":
+        goal = st.session_state.initial_goal
+        user_prompt = f"Create the dashboard and write a visual story answering: '{goal}'"
+    
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": original_prompt})
+    
+    with st.chat_message("user"):
+        st.markdown(original_prompt)
+    
+    # Generate agent response
+    with st.chat_message("assistant"):
+        with st.spinner("🤔 Analyzing..."):
+            try:
+                # Classify intent (but respect current mode)
+                intent = router_tools.router.classify_intent(user_prompt)
+                
+                # CRITICAL: If we're in data_engineer mode and user types "1" or "2",
+                # this is selecting Deep Dive vs Dashboard - STAY in data_engineer mode
+                if st.session_state.current_mode == "data_engineer" and user_prompt.strip() in ["1", "2"]:
+                    intent = "data_engineer"
+                
+                # If we're already in a mode and user gives a simple response, stay in that mode
+                elif st.session_state.current_mode:
+                    # Check if input is a cleaning option (digit or "digit strategy")
+                    first_word = user_prompt.strip().split()[0]
+                    if first_word.isdigit() and st.session_state.current_mode == "clean_data":
+                        intent = "clean_data"  # Stay in cleaning mode
+                
+                # Update current mode
+                st.session_state.current_mode = intent
+                
+                # Add mode context
+                context_prefix = {
+                    "audit_only": "MODE A (AUDITOR): ",
+                    "clean_data": "MODE B (SURGEON): ",
+                    "data_engineer": "MODE C (ENGINEER): "
+                }.get(intent, "")
+                
+                # Run agent
+                response = st.session_state.agent_executor.invoke({
+                    "input": context_prefix + user_prompt
+                })
+                
+                output_text = response['output']
+                
+                # Display response
+                st.markdown(output_text)
+                
+                # Save to history
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": output_text
+                })
+                
+                # Smart rerun: Only if artifacts were likely created
+                should_rerun = False
+                
+                # Check if diagram or dashboard was just generated
+                if "diagram" in output_text.lower() and ("generated" in output_text.lower() or "saved" in output_text.lower()):
+                    should_rerun = True
+                
+                if "dashboard" in output_text.lower() and "generated" in output_text.lower():
+                    should_rerun = True
+                
+                # Check if transformation completed (ER diagram should now exist)
+                if "warehouse created" in output_text.lower() or "transformation complete" in output_text.lower():
+                    should_rerun = True
+                
+                if should_rerun:
+                    time.sleep(0.5)  # Small delay to ensure file is written
+                    st.rerun()
+                
+            except Exception as e:
+                error_msg = f"❌ Error: {str(e)}"
+                st.error(error_msg)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": error_msg
+                })

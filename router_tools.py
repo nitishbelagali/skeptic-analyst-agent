@@ -22,22 +22,31 @@ class Router:
                 "which", "what", "how", "when", "where", "who",
                 "find", "get", "show", "give", "calculate", "compare",
                 # Confirmation
-                "yes", "yep", "sure", "ok", "proceed", "go ahead"
+                "yes", "yep", "sure", "ok", "proceed", "go ahead", "confirm"
             ]
         }
 
     def classify_intent(self, user_input: str):
         """
-        Determines intent using Fuzzy Matching (Score > 80).
+        Determines intent using Fuzzy Matching (Score > 80) and Numeric Shortcuts.
         """
         user_input = user_input.lower().strip()
         
-        # 1. Exact Match Shortcuts
-        if user_input in ["1", "2"]: return "data_engineer"
+        # --- CRITICAL: Context-aware numeric handling ---
+        # If user just typed "1" or "2", this is likely responding to a choice prompt
+        # We need to look at conversation context to determine mode
+        # For now, default "1" and "2" to data_engineer (Deep Dive / Dashboard choice)
+        if user_input in ["1", "2"]:
+            # These are likely responses to "Choose 1 or 2" prompt
+            return "data_engineer"
         
-        # 2. Fuzzy Match against all keyword lists
+        # "0" is the "Auto-Pilot" option in the Cleaning Menu
+        if user_input == "0": 
+            return "clean_data"
+        
+        # --- 2. Fuzzy Match against all keyword lists ---
         best_score = 0
-        best_intent = "data_engineer" # Default
+        best_intent = "data_engineer" # Default fallback
         
         for intent, keywords in self.routes.items():
             # Extract the best matching keyword from this intent's list
@@ -50,7 +59,7 @@ class Router:
         if best_score > 80:
             return best_intent
             
-        # Fallback Logic: Context clues
+        # --- 3. Fallback Context Logic ---
         if "clean" in user_input or "fix" in user_input: return "clean_data"
         if "audit" in user_input or "check" in user_input: return "audit_only"
             

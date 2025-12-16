@@ -1,3 +1,8 @@
  ❌  AUDIT FAILED:
-- OUTLIERS: Column 'popularity' has 1806 potential outliers.
-- OUTLIERS: Column 'stream_count' has 14160 potential outliers.
+- DUPLICATES: Found 10 exact duplicate rows.
+- NULLS: Column 'Product' has 15 missing values (9.7%).
+- NULLS: Column 'Region' has 11 missing values (7.1%).
+- NEGATIVE VALUES: Column 'Sales' has 6 negative rows.
+- OUTLIERS: Column 'Sales' has 6 potential outliers.
+- NEGATIVE VALUES: Column 'Customer_Age' has 5 negative rows.
+- OUTLIERS: Column 'Customer_Age' has 5 potential outliers.

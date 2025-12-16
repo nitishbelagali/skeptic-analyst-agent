@@ -1,5 +1,6 @@
 import polars as pl
 from typing import List, Dict, Any
+from langchain_core.tools import tool
 
 class CleaningSession:
     def __init__(self):
@@ -213,11 +214,19 @@ class CleaningSession:
                 
                 self.cleaning_history.extend(changes)
                 
+                # Create detailed cleaning summary
                 if changes:
                     summary = "\n".join([f"  ✓ {c}" for c in changes])
-                    return f"✅ Auto-pilot complete:\n{summary}"
+                    status = f"""✅ **DATA CLEANING COMPLETE.**
+
+**What I Did:**
+{summary}
+
+Your data is now clean and ready for analysis."""
                 else:
-                    return "✅ Auto-pilot ran but no changes were needed."
+                    status = "✅ **DATA CLEANING COMPLETE.** No changes were needed - your data was already clean!"
+
+                return status
 
             # Manual strategy
             original_rows = self.current_df.height
@@ -267,3 +276,38 @@ class CleaningSession:
 
 # Global session instance
 session = CleaningSession()
+
+# ------------------------------------------------------------------------------
+# LANGCHAIN TOOL WRAPPER
+# ------------------------------------------------------------------------------
+@tool
+def clean_data_tool(action_input: str) -> str:
+    """
+    Cleans data based on user options.
+    USAGE:
+    - "analyze": Returns list of problems and options 0-N.
+    - "0": Runs AUTO-PILOT cleaning (Recommended).
+    - "preview 0": Runs a SAFETY CHECK (Dry Run) for auto-pilot.
+    - "1 remove": Runs option 1 with strategy 'remove'.
+    """
+    # 1. Parse Input
+    cmd = action_input.lower().strip()
+    
+    # 2. Preview Mode (Dry Run)
+    if cmd.startswith("preview"):
+        parts = cmd.split()
+        option_id = parts[1] if len(parts) > 1 else "0"
+        return session.preview_fix(option_id)
+
+    # 3. Analyze Mode
+    if cmd == "analyze" or cmd == "check":
+        report, _ = session.analyze_options()
+        return report
+
+    # 4. Execute Mode
+    # Split "1 remove" into id="1", strategy="remove"
+    parts = cmd.split(" ", 1)
+    option_id = parts[0]
+    strategy = parts[1] if len(parts) > 1 else ""
+    
+    return session.apply_fix(option_id, strategy)
