@@ -75,13 +75,25 @@ if not os.getenv("OPENAI_API_KEY"):
     st.stop()
 
 # --- ARTIFACT CLEANUP ON START ---
+# Define all artifacts to track
+all_artifacts = [
+    "schema.dot", "schema.png", "dashboard_report.html", "warehouse.db", "dictionary.pdf",
+    "Audit_Report.pdf", "Deep_Dive_Analysis.pdf", "Dashboard_Report.pdf"
+]
+
+# Track generated files in session state so we don't delete new ones we just made
+if "generated_artifacts" not in st.session_state:
+    st.session_state.generated_artifacts = set()
+
+# Clean up stale files (files on disk that this session didn't create)
+for artifact in all_artifacts:
+    if os.path.exists(artifact) and artifact not in st.session_state.generated_artifacts:
+        try:
+            os.remove(artifact)
+        except:
+            pass
+
 if "app_initialized" not in st.session_state:
-    for artifact in ["schema.dot", "schema.png", "dashboard_report.html", "warehouse.db", "dictionary.pdf"]:
-        if os.path.exists(artifact):
-            try:
-                os.remove(artifact)
-            except:
-                pass
     st.session_state.app_initialized = True
     st.session_state.initial_goal = None
     st.session_state.current_mode = None
@@ -184,14 +196,12 @@ def preview_cleaning_fix(input_str: str):
 
 @tool
 def apply_cleaning_fix(input_str: str):
-    """Applies cleaning fix. Input: 'option_id strategy'."""
+    """Applies cleaning fix. Input: '0' or '1, 2, 3' or '1 remove'."""
     try:
+        # CLEAN FIX: Do NOT split by spaces here. Pass the whole string to the logic layer.
         clean_input = input_str.replace('"', '').replace("'", "").strip()
-        parts = clean_input.replace(",", " ").split(maxsplit=1)
-        option_id = parts[0].strip()
-        strategy = parts[1].strip() if len(parts) > 1 else ""
         
-        result = cleaning_tools.session.apply_fix(option_id, strategy)
+        result = cleaning_tools.session.apply_fix(clean_input)
         cleaning_tools.session.export_cleaned_data()
         
         try:
@@ -476,7 +486,12 @@ with st.sidebar:
         
         if "current_file" not in st.session_state or st.session_state.current_file != filename:
             # Clean up old artifacts
-            for artifact in ["schema.dot", "schema.png", "dashboard_report.html", "warehouse.db"]:
+            # UPDATED CLEANUP LIST TO INCLUDE PDFS
+            artifacts_to_clean = [
+                "schema.dot", "schema.png", "dashboard_report.html", "warehouse.db",
+                "Audit_Report.pdf", "Deep_Dive_Analysis.pdf", "Dashboard_Report.pdf"
+            ]
+            for artifact in artifacts_to_clean:
                 if os.path.exists(artifact):
                     try:
                         os.remove(artifact)
@@ -522,6 +537,12 @@ with st.sidebar:
     # Download buttons for generated files
     st.subheader("📥 Downloads")
     
+    # helper to check if file exists AND is fresh
+    def is_fresh(filename):
+        return (os.path.exists(filename) and 
+                "generated_artifacts" in st.session_state and 
+                filename in st.session_state.generated_artifacts)
+    
     # Audit PDF
     if os.path.exists("Audit_Report.pdf"):
         with open("Audit_Report.pdf", "rb") as f:
@@ -551,14 +572,20 @@ with st.sidebar:
     
     st.divider()
     
-    # Reset button
+   # Reset button
     if st.button("🔄 Reset Conversation"):
         st.session_state.messages = []
         st.session_state.initial_goal = None
         st.session_state.current_mode = None
         st.session_state.last_artifact_check = {}
         
-        for artifact in ["schema.dot", "schema.png", "dashboard_report.html"]:
+        # --- FIX: Add PDFs to this list so they disappear on reset ---
+        artifacts_to_clean = [
+            "schema.dot", "schema.png", "dashboard_report.html", "warehouse.db",
+            "Audit_Report.pdf", "Deep_Dive_Analysis.pdf", "Dashboard_Report.pdf"
+        ]
+        
+        for artifact in artifacts_to_clean:
             if os.path.exists(artifact):
                 try:
                     os.remove(artifact)
@@ -612,8 +639,8 @@ if user_prompt := st.chat_input("Ask me to analyze your data..."):
         st.stop()
     
     # BUG FIX: CAPTURE GOAL CORRECTLY
-    # Don't let "0", "1", "2" overwrite the actual analysis goal
-    ignore_list = ["yes", "no", "0", "1", "2", "proceed", "why", "explain", "tell me more", "confirm"]
+    # Don't let menu shortcuts overwrite the actual analysis goal
+    ignore_list = ["yes", "no", "0", "1", "2", "3", "proceed", "done", "finish", "why", "explain", "tell me more", "confirm"]
     
     # Only update goal if it's a real sentence and NOT in the ignore list
     if not any(word == user_prompt.lower().strip() for word in ignore_list):
@@ -633,6 +660,9 @@ if user_prompt := st.chat_input("Ask me to analyze your data..."):
     elif user_prompt.strip() == "2":
         goal = st.session_state.initial_goal
         user_prompt = f"Create the dashboard and write a visual story answering: '{goal}'"
+        
+    elif user_prompt.strip() == "3":
+        user_prompt = "I want to run a custom SQL query. Please ask me what I want to find out."
     
     # Add user message
     st.session_state.messages.append({"role": "user", "content": original_prompt})
@@ -647,9 +677,9 @@ if user_prompt := st.chat_input("Ask me to analyze your data..."):
                 # Classify intent (but respect current mode)
                 intent = router_tools.router.classify_intent(user_prompt)
                 
-                # CRITICAL: If we're in data_engineer mode and user types "1" or "2",
-                # this is selecting Deep Dive vs Dashboard - STAY in data_engineer mode
-                if st.session_state.current_mode == "data_engineer" and user_prompt.strip() in ["1", "2"]:
+                # CRITICAL: If we're in data_engineer mode and user types "1" or "2" or "3",
+                # this is selecting Deep Dive vs Dashboard vs SQL - STAY in data_engineer mode
+                if st.session_state.current_mode == "data_engineer" and user_prompt.strip() in ["1", "2", "3"]:
                     intent = "data_engineer"
                 
                 # If we're already in a mode and user gives a simple response, stay in that mode
@@ -675,6 +705,18 @@ if user_prompt := st.chat_input("Ask me to analyze your data..."):
                 })
                 
                 output_text = response['output']
+
+                if "Audit_Report.pdf" in output_text:
+                    st.session_state.generated_artifacts.add("Audit_Report.pdf")
+                    should_rerun = True
+                    
+                if "Deep_Dive_Analysis.pdf" in output_text:
+                    st.session_state.generated_artifacts.add("Deep_Dive_Analysis.pdf")
+                    should_rerun = True
+                    
+                if "Dashboard_Report.pdf" in output_text:
+                    st.session_state.generated_artifacts.add("Dashboard_Report.pdf")
+                    should_rerun = True
                 
                 # Display response
                 st.markdown(output_text)

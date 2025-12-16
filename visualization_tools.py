@@ -1,187 +1,184 @@
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import duckdb
-import pandas as pd
-import os
-from datetime import datetime
+import polars as pl
+import cleaning_tools
 from langchain_core.tools import tool
-# IMPORT CLEANING SESSION FOR SELF-HEALING
-from cleaning_tools import session as cleaning_session
 
-class VisualizationSession:
-    def __init__(self, db_path="warehouse.db"):
-        self.db_path = db_path
-        self.last_figure = None
-        self.colors = {
-            'primary': '#334155', 'secondary': '#6366f1', 'accent': '#0ea5e9',
-            'success': '#10b981', 'background': '#f8fafc', 'grid': '#e2e8f0'
-        }
+def visualize_data_tool(input_str: str = ""):
+    """
+    Generates a Power BI-style interactive dashboard using Plotly.
+    Includes SMART COLUMN DETECTION and HEATMAPS.
+    """
+    # 1. Check for Data
+    df = cleaning_tools.session.current_df
+    if df is None: return "❌ No data to visualize."
 
-    def _ensure_db_exists(self):
-        """SELF-HEALING: If DB is missing, create it instantly from memory."""
-        if os.path.exists(self.db_path): return True
-        if cleaning_session.current_df is not None:
-            try:
-                conn = duckdb.connect(self.db_path)
-                df_pandas = cleaning_session.current_df.to_pandas()
-                conn.register('df_view', df_pandas)
-                conn.execute("CREATE TABLE fact_table AS SELECT * FROM df_view")
-                conn.close()
-                return True
-            except: return False
-        return False
+    # 2. Safe Imports
+    try:
+        import pandas as pd
+        import plotly.express as px
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except ImportError as e:
+        return f"❌ Library Missing: {e}. Please run: `pip install plotly pandas pyarrow`"
 
-    def generate_dashboard(self, context=""):
-        # 1. Self-Heal
-        if not self._ensure_db_exists():
-            return "❌ Error: Data not found."
-
-        conn = None
-        try:
-            conn = duckdb.connect(self.db_path, read_only=True)
-            
-            # --- NEW: Get Summary Stats for the Agent ---
-            fact_table = "fact_table"
-            row_count = conn.execute(f"SELECT COUNT(*) FROM {fact_table}").fetchone()[0]
-            
-            # Try to get top category for insights
-            insight_text = f"Analyzed {row_count:,} records."
-            try:
-                cols = [c[0] for c in conn.execute(f"DESCRIBE {fact_table}").fetchall()]
-                cat_col = next((c for c in cols if "id" not in c.lower() and "date" not in c.lower()), None)
-                if cat_col:
-                    top = conn.execute(f"SELECT {cat_col}, COUNT(*) FROM {fact_table} GROUP BY 1 ORDER BY 2 DESC LIMIT 1").fetchone()
-                    insight_text += f" Top {cat_col}: {top[0]} ({top[1]:,} occurrences)."
-            except: pass
-            
-            # Get table info for charts
-            tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
-            dim_tables = [t for t in tables if t.startswith("dim_")]
-            fact_cols_info = conn.execute(f"DESCRIBE {fact_table}").fetchall()
-
-            # Determine mode
-            mode = "General Overview"
-            if context:
-                context_lower = context.lower()
-                if any(x in context_lower for x in ["trend", "time"]): mode = "Trend Analysis"
-                elif any(x in context_lower for x in ["category", "genre"]): mode = "Category Analysis"
-
-            # Create layout
-            fig = make_subplots(
-                rows=2, cols=2, column_widths=[0.65, 0.35], row_heights=[0.5, 0.5],
-                subplot_titles=(f'{mode}', 'Category Breakdown', 'Distribution', 'Metrics'),
-                specs=[[{"type": "xy"}, {"type": "xy"}], [{"type": "xy"}, {"type": "table"}]]
-            )
-            
-            self._add_primary_chart(fig, conn, fact_table, dim_tables, context, 1, 1)
-            self._add_category_chart(fig, conn, fact_table, dim_tables, 1, 2)
-            self._add_distribution_chart(fig, conn, fact_table, fact_cols_info, 2, 1)
-            self._add_summary_table(fig, conn, fact_table, dim_tables, 2, 2)
-            
-            fig.update_layout(title_text=f"<b>{mode}</b>", height=950, template="plotly_white")
-            self.last_figure = fig
-            
-            output_path = "dashboard_report.html"
-            fig.write_html(output_path, config={'displayModeBar': False})
-            conn.close()
-            
-            # Return both Path AND Insights
-            return f"PATH:{output_path}|STATS:{insight_text}"
-            
-        except Exception as e:
-            if conn: conn.close()
-            return f"❌ Dashboard Error: {e}"
-
-    def generate_dashboard_figure(self):
-        if self.last_figure: return self.last_figure
-        if "PATH:" in self.generate_dashboard(): return self.last_figure
-        return None
-
-    def _add_primary_chart(self, fig, conn, fact_table, dim_tables, context, row, col):
-        cols = [c[0] for c in conn.execute(f"DESCRIBE {fact_table}").fetchall()]
-        date_dim = next((d for d in dim_tables if "date" in d), None)
-        flat_date = next((c for c in cols if "date" in c.lower()), None)
+    try:
+        pdf = df.to_pandas()
         
-        context_lower = context.lower() if context else ""
-        
-        if ("trend" in context_lower) or flat_date or date_dim:
-            if date_dim:
-                col_name = date_dim.replace("dim_", "")
-                query = f"SELECT d.{col_name} as x, COUNT(*) as y FROM {fact_table} f JOIN {date_dim} d ON f.{col_name}_id = d.{col_name}_id GROUP BY 1 ORDER BY 1"
-            elif flat_date:
-                query = f"SELECT {flat_date} as x, COUNT(*) as y FROM {fact_table} GROUP BY 1 ORDER BY 1"
-            else: query = None
-            
-            if query:
-                try:
-                    df = conn.execute(query).fetchdf()
-                    if not df.empty:
-                        df['x'] = pd.to_datetime(df['x'], errors='coerce')
-                        df = df.dropna(subset=['x']).sort_values('x')
-                        fig.add_trace(go.Scatter(x=df['x'], y=df['y'], fill='tozeroy', name="Trend"), row=row, col=col)
+        # --- 🧠 SMART COLUMN DETECTION ---
+        num_cols = []
+        cat_cols = []
+        date_cols = []
+
+        # Step A: Classify based on types
+        for col in df.columns:
+            dtype = df[col].dtype
+            if dtype.is_numeric(): num_cols.append(col)
+            elif dtype == pl.Date or isinstance(dtype, pl.Datetime): date_cols.append(col)
+            elif dtype == pl.Utf8 or dtype == pl.Categorical: cat_cols.append(col)
+            else:
+                try: 
+                    if dtype == pl.String: cat_cols.append(col)
                 except: pass
-                return
 
-        self._add_category_chart(fig, conn, fact_table, dim_tables, row, col)
-
-    def _add_category_chart(self, fig, conn, fact_table, dim_tables, row, col):
-        cols = [c[0] for c in conn.execute(f"DESCRIBE {fact_table}").fetchall()]
-        cat_col = next((c for c in cols if "id" not in c.lower() and "date" not in c.lower()), None)
+        # Step B: Select the BEST Category Column
+        clean_cats = [c for c in cat_cols if not any(x in c.lower() for x in ['id', 'code', 'uuid', 'guid', 'pk'])]
+        priority_names = ['category', 'segment', 'region', 'department', 'group', 'type', 'class']
+        selected_cat = next((c for c in clean_cats if any(p in c.lower() for p in priority_names)), None)
         
-        if cat_col:
-            try:
-                query = f"SELECT {cat_col} as x, COUNT(*) as y FROM {fact_table} GROUP BY 1 ORDER BY 2 DESC LIMIT 10"
-                df = conn.execute(query).fetchdf()
-                if not df.empty:
-                    fig.add_trace(go.Bar(x=df['y'], y=df['x'], orientation='h', name=cat_col), row=row, col=col)
-            except: pass
+        if not selected_cat and clean_cats:
+            selected_cat = sorted(clean_cats, key=lambda c: pdf[c].nunique())[0]
 
-    def _add_distribution_chart(self, fig, conn, fact_table, info, row, col):
-        num_col = next((c[0] for c in info if c[1] in ['BIGINT','DOUBLE'] and 'id' not in c[0].lower()), None)
-        if num_col:
-            try:
-                df = conn.execute(f"SELECT {num_col} FROM {fact_table}").fetchdf()
-                fig.add_trace(go.Histogram(x=df[num_col], name=num_col), row=row, col=col)
-            except: pass
+        final_cat_col = selected_cat if selected_cat else (cat_cols[0] if cat_cols else None)
+        final_num_col = num_cols[0] if num_cols else None
+        final_date_col = date_cols[0] if date_cols else None
 
-    def _add_summary_table(self, fig, conn, fact_table, dim_tables, row, col):
-        try:
-            cnt = conn.execute(f"SELECT COUNT(*) FROM {fact_table}").fetchone()[0]
-            fig.add_trace(go.Table(
-                header=dict(values=['Metric','Value']),
-                cells=dict(values=[['Rows','Tables'], [f"{cnt:,}", str(len(dim_tables)+1)]])
-            ), row=row, col=col)
-        except: pass
+        # --- HEATMAP LOGIC ---
+        # Only show heatmap if we have at least 2 numeric columns to compare
+        show_heatmap = len(num_cols) >= 2
+        
+        # --- DASHBOARD LAYOUT (5 Rows if Heatmap, 4 if not) ---
+        row_heights = [0.1, 0.25, 0.25, 0.25, 0.15] if show_heatmap else [0.15, 0.35, 0.35, 0.15]
+        specs_list = [
+            [{"type": "domain"}, {"type": "domain"}],      # Row 1: KPI
+            [{"colspan": 2, "type": "xy"}, None],           # Row 2: Trend
+            [{"type": "xy"}, {"type": "domain"}],           # Row 3: Bar + Pie
+        ]
+        
+        if show_heatmap:
+             specs_list.append([{"colspan": 2, "type": "xy"}, None]) # Row 4: Heatmap
+        
+        specs_list.append([{"colspan": 2, "type": "table"}, None])   # Row 5 (or 4): Table
 
-session = VisualizationSession()
+        subplot_titles = [
+            "Total Metric", "Record Count", 
+            "Trend Analysis", 
+            f"Top {final_cat_col}s" if final_cat_col else "Categories", 
+            f"Composition", 
+        ]
+        if show_heatmap: subplot_titles.append("Correlation Heatmap")
+        subplot_titles.append("Data Preview")
 
-# ------------------------------------------------------------------------------
-# LANGCHAIN TOOL WRAPPER
-# ------------------------------------------------------------------------------
-@tool
-def visualize_data_tool(user_request: str) -> str:
-    """Generates an interactive dashboard based on the engineered data."""
-    return create_dashboard(user_request)
+        fig = make_subplots(
+            rows=len(specs_list), cols=2,
+            specs=specs_list,
+            subplot_titles=tuple(subplot_titles),
+            vertical_spacing=0.08,
+            row_heights=row_heights
+        )
+        
+        # 1. KPI CARDS
+        primary_metric = final_num_col if final_num_col else "Count"
+        total_val = pdf[primary_metric].sum() if final_num_col else len(pdf)
+        
+        fig.add_trace(go.Indicator(
+            mode="number",
+            value=total_val,
+            title={"text": f"Total {primary_metric}"},
+            number={'prefix': "$" if 'sales' in primary_metric.lower() or 'revenue' in primary_metric.lower() else "", 'font': {'size': 40}},
+        ), row=1, col=1)
+        
+        fig.add_trace(go.Indicator(
+            mode="number",
+            value=len(pdf),
+            title={"text": "Total Records"},
+            number={'font': {'size': 40}}
+        ), row=1, col=2)
+        
+        # 2. MAIN TREND
+        if final_date_col and final_num_col:
+            trend_df = pdf.sort_values(by=final_date_col)
+            fig.add_trace(go.Scatter(
+                x=trend_df[final_date_col], y=trend_df[final_num_col],
+                mode='lines', name=f"{final_num_col} Trend",
+                line=dict(color='#636EFA', width=3), fill='tozeroy'
+            ), row=2, col=1)
+        elif final_num_col:
+            fig.add_trace(go.Histogram(
+                x=pdf[final_num_col], name="Distribution",
+                marker_color='#EF553B', opacity=0.8
+            ), row=2, col=1)
 
+        # 3. CATEGORICAL BREAKDOWN
+        if final_cat_col:
+            top_cats = pdf[final_cat_col].value_counts().head(10)
+            fig.add_trace(go.Bar(
+                x=top_cats.index, y=top_cats.values,
+                name=final_cat_col, marker_color='#00CC96'
+            ), row=3, col=1)
+            
+            fig.add_trace(go.Pie(
+                labels=top_cats.index, values=top_cats.values,
+                name=final_cat_col, hole=.5,
+                marker=dict(colors=px.colors.qualitative.Prism)
+            ), row=3, col=2)
+        
+        # 4. HEATMAP (Conditional)
+        next_row = 4
+        if show_heatmap:
+            corr_matrix = pdf[num_cols].corr()
+            fig.add_trace(go.Heatmap(
+                z=corr_matrix.values,
+                x=corr_matrix.columns,
+                y=corr_matrix.index,
+                colorscale='Viridis',
+                showscale=True
+            ), row=4, col=1)
+            next_row = 5
+        
+        # 5. DATA TABLE
+        preview_df = pdf.head(5)
+        fig.add_trace(go.Table(
+            header=dict(values=list(preview_df.columns), fill_color='#334155', font=dict(color='white'), align='left'),
+            cells=dict(values=[preview_df[k].tolist() for k in preview_df.columns], fill_color='#1e293b', font=dict(color='lightgrey'), align='left')
+        ), row=next_row, col=1)
+
+        fig.update_layout(
+            height=1200 if show_heatmap else 1000, 
+            showlegend=False, template="plotly_dark",
+            paper_bgcolor='#1e293b', plot_bgcolor='#0f172a',
+            font=dict(color="#e2e8f0", family="Arial"),
+            margin=dict(t=50, l=20, r=20, b=20)
+        )
+        
+        fig.write_html("dashboard_report.html")
+        
+        # --- GENERATE DETAILED VISUAL STORY STATS ---
+        stats = f"Analyzed {len(pdf)} records. "
+        if final_cat_col:
+            top_cat = pdf[final_cat_col].mode()[0]
+            top_count = pdf[final_cat_col].value_counts().iloc[0]
+            pct = (top_count / len(pdf)) * 100
+            stats += f"**Key Insight:** The dominant '{final_cat_col}' is **{top_cat}** ({pct:.1f}% of total). "
+        
+        if show_heatmap:
+            stats += "A correlation heatmap was generated to show relationships between numerical variables."
+
+        return f"✅ Dashboard Generated (dashboard_report.html).\nSTATS: {stats}"
+
+    except Exception as e:
+        return f"❌ Visualization Error: {str(e)}"
+
+# --- TOOL WRAPPERS ---
 @tool
 def create_dashboard(input_str: str = ""):
-    """Generates interactive dashboard with stats."""
-    context = "General Overview"
-    if str(input_str).strip() in ["2", "1", "yes", "dashboard"]: context = "General"
-    
-    result = session.generate_dashboard(context)
-    
-    if "PATH:" in result:
-        path = result.split("|STATS:")[0].replace("PATH:", "")
-        stats = result.split("|STATS:")[1] if "|STATS:" in result else ""
-        
-        return f"""✅ **Dashboard Generated!**
-        
-
-
-**Key Data Insights:**
-{stats}
-
-(The interactive dashboard file `{path}` is ready. Please analyze these stats for the user.)"""
-    
-    return result
+    """Generates an interactive HTML dashboard with automated charts."""
+    return visualize_data_tool(input_str)

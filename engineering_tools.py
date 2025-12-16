@@ -37,25 +37,25 @@ class EngineeringSession:
             n_unique = df[col].n_unique()
             cardinality_ratio = n_unique / total_rows if total_rows > 0 else 0
             
-            # Rule 1: Date/Time → Time Dimension
+            # Rule 1: Date/Time -> Time Dimension
             if dtype in [pl.Date, pl.Datetime, pl.Time] or "date" in col_lower or "time" in col_lower:
                 time_dims.append(col)
             
-            # Rule 2: Low cardinality String → Dimension
+            # Rule 2: Low cardinality String -> Dimension
             elif dtype == pl.Utf8 and cardinality_ratio < 0.9:
-                dimensions.append({"name": col, "cardinality": n_unique})
+                dimensions.append(col)
             
-            # Rule 3: Low cardinality Numeric → Dimension (e.g., ratings 1-5)
+            # Rule 3: Low cardinality Numeric -> Dimension (e.g., ratings 1-5)
             elif dtype.is_numeric() and cardinality_ratio < 0.05 and n_unique < 20:
-                dimensions.append({"name": col, "cardinality": n_unique})
+                dimensions.append(col)
             
-            # Rule 4: High cardinality Numeric → Measure
+            # Rule 4: High cardinality Numeric -> Measure
             elif dtype.is_numeric():
-                measures.append({"name": col})
+                measures.append(col)
         
         self.current_schema_plan = {
-            "dimensions": [d["name"] for d in dimensions],
-            "measures": [m["name"] for m in measures],
+            "dimensions": dimensions,
+            "measures": measures,
             "time_dimensions": time_dims
         }
         
@@ -73,7 +73,6 @@ class EngineeringSession:
         role = new_role.lower().strip()
         
         # --- SMART VALIDATION ---
-        # We need access to data stats to validate. If df_context is passed (it should be), check logic.
         if df_context is not None and col in df_context.columns:
             n_unique = df_context[col].n_unique()
             total = df_context.height
@@ -129,17 +128,42 @@ FACT MEASURES (Numbers): {', '.join(measures) if measures else 'None'}
             return None
         
         dims = self.current_schema_plan['dimensions'] + self.current_schema_plan['time_dimensions']
+        measures = self.current_schema_plan['measures']
         
-        # Build DOT syntax
+        # Build DOT syntax (Standard Graphviz)
         dot = 'digraph StarSchema {\n'
-        dot += '  rankdir=LR;\n'
-        dot += '  node [shape=box, style=filled, fontname="Helvetica"];\n'
-        dot += '  FACT [label="FACT TABLE", fillcolor="#FFD700", fontsize=12];\n'
+        dot += '  graph [rankdir=LR, pad="0.5", nodesep="0.5", ranksep="1"];\n'
+        dot += '  node [shape=plaintext, fontname="Helvetica"];\n'
+        dot += '  edge [arrowhead=crow, arrowtail=none, dir=both];\n'
         
+        # Fact Table Node
+        fact_rows = ""
+        for m in measures:
+             fact_rows += f'<tr><td align="left">{m}</td><td align="right">float</td></tr>'
+        
+        dot += f'''
+        FACT [label=<
+            <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+                <tr><td bgcolor="#FFD700"><b>FACT TABLE</b></td></tr>
+                {fact_rows}
+            </table>
+        >];
+        '''
+        
+        # Dimension Nodes
         for d in dims:
             clean = self._clean_name(d)
-            dot += f'  DIM_{clean.upper()} [label="DIM_{clean.upper()}", fillcolor="#ADD8E6", fontsize=10];\n'
-            dot += f'  FACT -> DIM_{clean.upper()};\n'
+            # Create dimension table node
+            dot += f'''
+            DIM_{clean} [label=<
+                <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+                    <tr><td bgcolor="#ADD8E6"><b>DIM_{clean.upper()}</b></td></tr>
+                    <tr><td align="left">{d}</td></tr>
+                </table>
+            >];
+            '''
+            # Create relationship
+            dot += f'  FACT -> DIM_{clean} [label="FK"];\n'
         
         dot += '}'
         return dot
@@ -149,7 +173,12 @@ FACT MEASURES (Numbers): {', '.join(measures) if measures else 'None'}
         if not self.current_schema_plan:
             return "❌ No schema plan found. Run detect_schema first."
         
+        # Merge dimensions and time dimensions
         dims = self.current_schema_plan['dimensions'] + self.current_schema_plan['time_dimensions']
+        
+        if not dims:
+            self.fact_table = df.clone()
+            return "⚠️ No dimensions detected. Data kept as single Fact table."
         
         self.dim_tables = {}
         self.fact_table = df.clone()
@@ -174,6 +203,8 @@ FACT MEASURES (Numbers): {', '.join(measures) if measures else 'None'}
                 
                 # Join back to fact table
                 self.fact_table = self.fact_table.join(dim_df, on=dim_col, how="left")
+                
+                # Drop original column, keep ID
                 self.fact_table = self.fact_table.drop(dim_col)
                 
             except Exception as e:
@@ -188,25 +219,30 @@ FACT MEASURES (Numbers): {', '.join(measures) if measures else 'None'}
             return "❌ No data to load. Run apply_transformation first."
         
         try:
+            # Remove old database file
             if os.path.exists(self.db_path):
                 try: os.remove(self.db_path)
                 except: pass
             
+            # Connect to new database
             conn = duckdb.connect(self.db_path)
             
+            # Load dimension tables
             for name, df in self.dim_tables.items():
                 safe_name = self._clean_name(name)
-                # Helper to move Polars to DuckDB
                 conn.register(f"{safe_name}_temp", df)
                 conn.execute(f"CREATE TABLE {safe_name} AS SELECT * FROM {safe_name}_temp")
                 conn.unregister(f"{safe_name}_temp")
             
+            # Load fact table
             conn.register("fact_table_temp", self.fact_table)
             conn.execute("CREATE TABLE fact_table AS SELECT * FROM fact_table_temp")
             conn.unregister("fact_table_temp")
             
+            # Get table list
             tables = conn.execute("SHOW TABLES").fetchall()
             table_names = [t[0] for t in tables]
+            
             conn.close()
             
             return f"✅ Data warehouse created!\n📁 Database: {self.db_path}\n📊 Tables: {', '.join(table_names)}"
@@ -215,8 +251,10 @@ FACT MEASURES (Numbers): {', '.join(measures) if measures else 'None'}
             return f"❌ Database Error: {e}"
 
     def query_database(self, sql: str):
+        """Executes SQL query on the warehouse."""
         if not os.path.exists(self.db_path):
             return "❌ Database doesn't exist. Run load_to_warehouse first."
+        
         try:
             conn = duckdb.connect(self.db_path, read_only=True)
             result = conn.execute(sql).fetchdf()
@@ -226,27 +264,36 @@ FACT MEASURES (Numbers): {', '.join(measures) if measures else 'None'}
             return f"❌ Query Error: {e}"
 
     def get_schema_info(self):
-        if not os.path.exists(self.db_path): return "❌ No database found."
+        """Returns schema information for SQL generation."""
+        if not os.path.exists(self.db_path):
+            return "❌ No database found."
+        
         try:
             conn = duckdb.connect(self.db_path, read_only=True)
             tables = conn.execute("SHOW TABLES").fetchall()
+            
             info = "DATABASE SCHEMA:\n\n"
             for t in tables:
                 table_name = t[0]
                 cols = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
                 col_names = [c[1] for c in cols]
                 info += f"Table {table_name}: {', '.join(col_names)}\n"
+            
             conn.close()
             return info
+            
         except Exception as e:
-            return f"❌ Error: {e}"
+            return f"❌ Error getting schema: {e}"
 
     def reset(self):
+        """Clears session state and removes database file."""
         self.current_schema_plan = None
         self.fact_table = None
         self.dim_tables = {}
+        
         if os.path.exists(self.db_path):
             try: os.remove(self.db_path)
             except: pass
 
+# Global session instance
 session = EngineeringSession()

@@ -10,7 +10,7 @@ class Router:
             "clean_data": [
                 "clean", "fix", "repair", "scrub", "remove", "fill", 
                 "drop", "replace", "impute", "modify", "change", "sanitize",
-                "correct", "patch"
+                "correct", "patch", "0", "auto-pilot"
             ],
             "data_engineer": [
                 # Analysis
@@ -21,49 +21,52 @@ class Router:
                 # Discovery
                 "which", "what", "how", "when", "where", "who",
                 "find", "get", "show", "give", "calculate", "compare",
-                # Confirmation
-                "yes", "yep", "sure", "ok", "proceed", "go ahead", "confirm"
+                # Confirmation & Transitions
+                "yes", "yep", "sure", "ok", "proceed", "go ahead", "confirm",
+                "done", "finish", "finished", "completed", "next",
+                "1", "2", "3"
             ]
         }
 
     def classify_intent(self, user_input: str):
         """
-        Determines intent using Fuzzy Matching (Score > 80) and Numeric Shortcuts.
+        Determines intent using strict shortcuts first, then fuzzy matching.
         """
         user_input = user_input.lower().strip()
         
-        # --- CRITICAL: Context-aware numeric handling ---
-        # If user just typed "1" or "2", this is likely responding to a choice prompt
-        # We need to look at conversation context to determine mode
-        # For now, default "1" and "2" to data_engineer (Deep Dive / Dashboard choice)
-        if user_input in ["1", "2"]:
-            # These are likely responses to "Choose 1 or 2" prompt
-            return "data_engineer"
+        # --- 1. STRICT SHORTCUTS ---
         
-        # "0" is the "Auto-Pilot" option in the Cleaning Menu
+        # "0" is exclusively the Auto-Pilot Cleaning option
         if user_input == "0": 
             return "clean_data"
         
-        # --- 2. Fuzzy Match against all keyword lists ---
+        # "1", "2", "3" are menu selections (usually Analysis/Engineering choices)
+        # 1 = Download / Deep Dive
+        # 2 = ER Model / Dashboard
+        # 3 = Custom SQL
+        if user_input in ["1", "2", "3"]:
+            return "data_engineer"
+            
+        # "Done" signals the end of a cleaning loop -> Move to Engineering options
+        if user_input in ["done", "finish", "finished", "next"]:
+            return "data_engineer"
+        
+        # --- 2. FUZZY MATCH ---
         best_score = 0
         best_intent = "data_engineer" # Default fallback
         
         for intent, keywords in self.routes.items():
-            # Extract the best matching keyword from this intent's list
             match, score = process.extractOne(user_input, keywords)
-            if score > best_score:
+            if score > 80 and score > best_score:
                 best_score = score
                 best_intent = intent
         
-        # Threshold check (80% confidence)
-        if best_score > 80:
-            return best_intent
-            
-        # --- 3. Fallback Context Logic ---
+        # --- 3. CONTEXT FALLBACKS ---
+        # Specific overrides if fuzzy matching was borderline
         if "clean" in user_input or "fix" in user_input: return "clean_data"
-        if "audit" in user_input or "check" in user_input: return "audit_only"
+        if "audit" in user_input: return "audit_only"
             
-        return "data_engineer"
+        return best_intent
 
     def get_workflow_description(self, intent):
         if intent == "audit_only":
